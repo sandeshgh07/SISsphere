@@ -99,6 +99,7 @@ export default function FeesPage() {
   const canApplyDiscount = effectiveRole && ["principal", "accountant"].includes(effectiveRole);
   const canRecordPayment = effectiveRole && ["parent", "school_admin", "accountant", "principal"].includes(effectiveRole);
   const isParent = effectiveRole === "parent";
+  const isBoard = effectiveRole && ["super_admin"].includes(effectiveRole); // Only SuperAdmin (Board) masked, Principal sees details
   const canViewAnalytics = effectiveRole && ["principal", "school_admin", "accountant", "super_admin"].includes(effectiveRole);
 
   // Filtered students and fees based on search
@@ -372,6 +373,7 @@ export default function FeesPage() {
   const handleVerifyPayment = async () => {
     if (!selectedPayment) return;
     try {
+      // Corrected endpoint
       await axios.post(
         `${API_BASE}/api/payments/${selectedPayment.id}/verify`,
         { status: verifyAction, notes: verifyNotes },
@@ -414,16 +416,23 @@ export default function FeesPage() {
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case "verified":
+      case "SUCCEEDED":
+      case "verified": // Fallback
+      case "succeeded":
         return <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>;
+      case "REJECTED":
       case "rejected":
         return <Badge className="bg-red-600"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+      case "PENDING":
+      case "pending":
       default:
         return <Badge className="bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
     }
   };
 
   const getStudentName = (studentId) => {
+    // Privacy: Board members should not see specific student/parent names in financial lists
+    if (isBoard) return "Student (Masked)";
     const student = students.find(s => s.id === studentId);
     return student ? `${student.first_name} ${student.last_name}` : studentId?.slice(0, 8) + "...";
   };
@@ -699,7 +708,7 @@ export default function FeesPage() {
                             {canVerifyPayments && (
                                 <td className="py-2">
                                 <div className="flex gap-1">
-                                    {payment.status === "pending" && (
+                                    {(payment.status === "PENDING" || payment.status === "pending") && (
                                     <Button
                                         size="sm"
                                         variant="outline"
@@ -712,7 +721,7 @@ export default function FeesPage() {
                                         Verify
                                     </Button>
                                     )}
-                                    {canApplyDiscount && payment.status !== "rejected" && !payment.discount_amount && (
+                                    {canApplyDiscount && (payment.status !== "REJECTED" && payment.status !== "rejected") && !payment.discount_amount && (
                                     <Button
                                         size="sm"
                                         variant="ghost"
