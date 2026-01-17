@@ -135,3 +135,75 @@ class FinanceAnalyticsService:
         _revenue_cache[cache_key] = (datetime.now(), data)
 
         return data
+
+    def get_daily_revenue_30_days(self):
+        """
+        Returns daily totals for the last 30 days.
+        """
+        end_date = self.today
+        start_date = end_date - timedelta(days=29) # 30 days inclusive
+
+        results = self.db.query(
+            func.date(finance_models.Payment.created_at).label("date"),
+            func.sum(finance_models.Payment.amount).label("amount")
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED,
+            finance_models.Payment.created_at >= start_date
+        ).group_by(
+            func.date(finance_models.Payment.created_at)
+        ).all()
+
+        # Fill missing dates with 0
+        data_map = {r.date: r.amount for r in results}
+        final_data = []
+
+        cumulative = 0.0
+        # Target: Let's assume a simple target of 1000 per day for demo or average of active days + 10%
+        # Or better: derive from invoices due this month?
+        # For this component, we just provide the data. The target logic can be in the router or here.
+        # Let's calculate a cumulative target line that assumes a steady growth to a monthly goal.
+        # Monthly goal = Sum of invoices issued this month? Or just an arbitrary goal for visualization?
+        # Let's return the daily data, router can construct target.
+
+        current = start_date
+        while current <= end_date:
+            d_str = str(current)
+            amount = data_map.get(d_str, 0.0) or 0.0
+            final_data.append({
+                "date": d_str,
+                "amount": amount
+            })
+            current += timedelta(days=1)
+
+        return final_data
+
+    def get_payment_source_breakdown(self):
+        """
+        Returns split between OFFICE_CASH and REMOTE.
+        """
+        results = self.db.query(
+            finance_models.Payment.entry_source,
+            func.sum(finance_models.Payment.amount).label("total")
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
+        ).group_by(
+            finance_models.Payment.entry_source
+        ).all()
+
+        # Map to simpler dict
+        # entry_source is Enum: REMOTE, OFFICE_CASH, AUTOMATED
+        data = {
+            "OFFICE_CASH": 0.0,
+            "REMOTE": 0.0
+        }
+
+        for r in results:
+            source = r.entry_source
+            if source == finance_models.EntrySource.OFFICE_CASH:
+                data["OFFICE_CASH"] += (r.total or 0.0)
+            elif source in [finance_models.EntrySource.REMOTE, finance_models.EntrySource.AUTOMATED]:
+                data["REMOTE"] += (r.total or 0.0)
+
+        return data

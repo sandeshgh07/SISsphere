@@ -87,6 +87,7 @@ export default function StudentsPage() {
   const [parents, setParents] = useState([]);
   const [sections, setSections] = useState([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [justification, setJustification] = useState("");
 
   const effectiveRole = getEffectiveRole();
   const isPrincipal = effectiveRole === "principal";
@@ -516,12 +517,17 @@ export default function StudentsPage() {
     setActionLoading(true);
     try {
       await axios.patch(`${API_BASE}/api/students/${selectedStudent.id}`,
-        { grade_id: selectedStudent.grade_id, section_id: selectedStudent.section_id || null },
+        {
+            grade_id: selectedStudent.grade_id,
+            section_id: selectedStudent.section_id || null,
+            reason: justification
+        },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       toast({ title: "Success", description: "Student updated" });
       setShowEditModal(false);
       setSelectedStudent(null);
+      setJustification("");
       loadData();
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.detail || "Failed to update", variant: "destructive" });
@@ -1246,10 +1252,24 @@ export default function StudentsPage() {
               </Select>
               <p className="text-xs text-slate-500 mt-1">Sections are school-wide and shared across all grades.</p>
             </div>
+            <div>
+              <Label>Justification * (Min 10 chars)</Label>
+              <textarea
+                value={justification}
+                onChange={(e) => setJustification(e.target.value)}
+                placeholder="Explain why you are changing the grade/section..."
+                className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] mt-2"
+              />
+              <p className="text-xs text-slate-500 mt-1">{justification.length}/10</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditModal(false)} className="border-slate-600">Cancel</Button>
-            <Button onClick={handleUpdateStudent} disabled={actionLoading} className="bg-blue-600 hover:bg-blue-500">
+            <Button
+                onClick={handleUpdateStudent}
+                disabled={actionLoading || justification.length < 10}
+                className="bg-blue-600 hover:bg-blue-500"
+            >
               {actionLoading ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>

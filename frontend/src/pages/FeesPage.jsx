@@ -1034,13 +1034,14 @@ export default function FeesPage() {
                 </Select>
               </div>
               <div>
-                <Label>Notes (optional)</Label>
-                <Input
+                <Label>Justification / Notes * (Min 10 chars)</Label>
+                <textarea
                   value={verifyNotes}
                   onChange={(e) => setVerifyNotes(e.target.value)}
-                  placeholder="Verification notes..."
-                  className="bg-slate-800 border-slate-600"
+                  placeholder="Explain your decision..."
+                  className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px]"
                 />
+                <p className="text-xs text-slate-500 mt-1">{verifyNotes.length}/10</p>
               </div>
             </div>
           )}
@@ -1050,6 +1051,7 @@ export default function FeesPage() {
             </Button>
             <Button
               onClick={handleVerifyPayment}
+              disabled={verifyNotes.length < 10}
               className={verifyAction === "verified" ? "bg-green-600 hover:bg-green-500" : "bg-red-600 hover:bg-red-500"}
             >
               {verifyAction === "verified" ? "Verify Payment" : "Reject Payment"}
@@ -1081,13 +1083,14 @@ export default function FeesPage() {
                 />
               </div>
               <div>
-                <Label>Reason *</Label>
-                <Input
+                <Label>Reason * (Min 10 chars)</Label>
+                <textarea
                   value={discountReason}
                   onChange={(e) => setDiscountReason(e.target.value)}
-                  placeholder="e.g., Sibling discount, Scholarship"
-                  className="bg-slate-800 border-slate-600"
+                  placeholder="Explain this discount..."
+                  className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px]"
                 />
+                <p className="text-xs text-slate-500 mt-1">{discountReason.length}/10</p>
               </div>
               {discountAmount && (
                 <div className="p-3 bg-emerald-900/30 rounded-lg text-sm border border-emerald-700">
@@ -1102,7 +1105,11 @@ export default function FeesPage() {
             <Button variant="outline" onClick={() => setShowDiscount(false)} className="border-slate-600 text-slate-300">
               Cancel
             </Button>
-            <Button onClick={handleApplyDiscount} className="bg-emerald-600 hover:bg-emerald-500">
+            <Button
+                onClick={handleApplyDiscount}
+                disabled={discountReason.length < 10}
+                className="bg-emerald-600 hover:bg-emerald-500"
+            >
               Apply Discount
             </Button>
           </DialogFooter>
