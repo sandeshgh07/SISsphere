@@ -10,6 +10,7 @@ from schools import models as school_models
 from communication import models as comm_models
 from audit import models as audit_models
 from auth.subscription import require_subscription_feature
+from attendance.schemas import GateScanResponse
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -23,15 +24,6 @@ class QRCodeResponse(BaseModel):
 
 class ScanRequest(BaseModel):
     token: str
-
-class ScanResponse(BaseModel):
-    status: str
-    student_name: str
-    photo_url: Optional[str] = None
-    parent_name: Optional[str] = None
-    action: str # CHECKIN/CHECKOUT
-    timestamp: datetime
-    message: Optional[str] = None
 
 class HistoryItem(BaseModel):
     student_name: str
@@ -92,7 +84,7 @@ def generate_qr_code(
         student_name=f"{student.first_name} {student.last_name}"
     )
 
-@router.post("/scan", response_model=ScanResponse)
+@router.post("/scan", response_model=GateScanResponse)
 def scan_qr_code(
     scan_data: ScanRequest,
     db: Session = Depends(get_db),
@@ -122,6 +114,7 @@ def scan_qr_code(
     # Verify Parent Link (Security Check)
     parent_id = payload.get("parent_id")
     parent_name = "Unknown Parent"
+    parent_photo = None
 
     if parent_id:
         link = db.query(student_models.ParentStudentLink).filter(
@@ -137,6 +130,7 @@ def scan_qr_code(
         parent = db.query(school_models.User).get(uuid.UUID(parent_id))
         if parent:
             parent_name = f"{parent.first_name} {parent.last_name}"
+            parent_photo = parent.photo_url
 
     # Check 1: Authorization in Link
     if parent_id and link and not link.is_authorized_pickup:
@@ -252,11 +246,12 @@ def scan_qr_code(
 
     db.commit()
 
-    return ScanResponse(
-        status="Success",
+    return GateScanResponse(
+        status="SUCCESS",
         student_name=f"{student.first_name} {student.last_name}",
-        photo_url=student.photo_url,
+        student_photo_url=student.photo_url,
         parent_name=parent_name,
+        parent_photo_url=parent_photo,
         action=action,
         timestamp=log_entry.timestamp
     )

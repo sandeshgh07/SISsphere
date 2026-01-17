@@ -157,7 +157,7 @@ def test_scan_success(setup_data):
     response = client.post("/api/attendance/gate/scan", json={"token": token})
     print(response.json())
     assert response.status_code == 200
-    assert response.json()["status"] == "Success"
+    assert response.json()["status"] == "SUCCESS"
     assert response.json()["parent_name"] is not None
 
 def test_unauthorized_pickup_flag(setup_data, db):
