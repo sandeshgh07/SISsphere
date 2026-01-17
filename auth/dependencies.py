@@ -19,6 +19,7 @@ class Roles:
     PARENT = "parent"
     STUDENT = "student"
     SECURITY_GUARD = "security_guard"
+    BOARD = "board"
 
 def get_db():
     db = SessionLocal()

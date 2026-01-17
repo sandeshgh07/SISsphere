@@ -25,9 +25,16 @@ class PaymentIntentStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
+    REJECTED = "REJECTED"
+
+class EntrySource(str, enum.Enum):
+    REMOTE = "REMOTE"
+    OFFICE_CASH = "OFFICE_CASH"
+    AUTOMATED = "AUTOMATED"
 
 class Invoice(Base):
     __tablename__ = "invoices"
@@ -68,15 +75,22 @@ class Payment(Base):
     __tablename__ = "payments"
     id = Column(String, primary_key=True, default=generate_uuid)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
-    invoice_id = Column(String, ForeignKey("invoices.id"), nullable=False)
-    payment_intent_id = Column(String, ForeignKey("payment_intents.id"), nullable=False)
+    invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True) # Made nullable to support direct Fee payment
+    fee_id = Column(String, ForeignKey("fees.id"), nullable=True) # Added to link to Fees
+    payment_intent_id = Column(String, ForeignKey("payment_intents.id"), nullable=True)
 
-    gateway = Column(String, nullable=False)
-    gateway_txn_id = Column(String, nullable=False)
+    gateway = Column(String, nullable=True)
+    gateway_txn_id = Column(String, nullable=True)
     amount = Column(Float, nullable=False)
     currency = Column(String, nullable=False)
     status = Column(String, nullable=False)
-    raw_event = Column(JSON, nullable=False)
+    raw_event = Column(JSON, nullable=True)
+
+    # Hybrid Payment Entry Fields
+    entry_source = Column(Enum(EntrySource), default=EntrySource.AUTOMATED, nullable=False)
+    verifier_id = Column(String, ForeignKey("users.id"), nullable=True)
+    receipt_url = Column(String, nullable=True)
+    notes = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
