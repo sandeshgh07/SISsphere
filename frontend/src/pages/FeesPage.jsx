@@ -20,8 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, CheckCircle, XCircle, Clock, Upload, DollarSign, Percent, Users, Search, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Clock, Upload, DollarSign, Percent, Users, Search, FileSpreadsheet, AlertCircle, CheckCircle2, Download, TrendingUp, BarChart as BarChartIcon } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
@@ -41,6 +43,10 @@ export default function FeesPage() {
   const [students, setStudents] = useState([]);
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("fees");
+
+  // Analytics State
+  const [analyticsData, setAnalyticsData] = useState({ snapshot: null, velocity: [] });
 
   // Modals
   const [showCreateFee, setShowCreateFee] = useState(false);
@@ -63,9 +69,9 @@ export default function FeesPage() {
     student_id: "",
     fee_id: "",
     amount: "",
-    receipt_file_name: "",
-    discount_title: "",
-    discount_amount: "",
+    entry_source: "REMOTE",
+    notes: "",
+    file: null
   });
 
   // Verify payment state
@@ -93,6 +99,7 @@ export default function FeesPage() {
   const canApplyDiscount = effectiveRole && ["principal", "accountant"].includes(effectiveRole);
   const canRecordPayment = effectiveRole && ["parent", "school_admin", "accountant", "principal"].includes(effectiveRole);
   const isParent = effectiveRole === "parent";
+  const canViewAnalytics = effectiveRole && ["principal", "school_admin", "accountant", "super_admin"].includes(effectiveRole);
 
   // Filtered students and fees based on search
   const filteredStudents = useMemo(() => {
@@ -113,8 +120,11 @@ export default function FeesPage() {
   useEffect(() => {
     if (!isHydrated || !accessToken) return;
     loadData();
+    if (canViewAnalytics) {
+        loadAnalytics();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, accessToken]);
+  }, [isHydrated, accessToken, canViewAnalytics]);
 
   const loadData = async () => {
     setLoading(true);
@@ -136,6 +146,19 @@ export default function FeesPage() {
       setLoading(false);
     }
   };
+
+  const loadAnalytics = async () => {
+      try {
+        const headers = { Authorization: `Bearer ${accessToken}` };
+        const [snapRes, velRes] = await Promise.all([
+             axios.get(`${API_BASE}/api/analytics/finance/snapshot`, { headers }).catch(() => ({ data: null })),
+             axios.get(`${API_BASE}/api/analytics/finance/revenue-velocity`, { headers }).catch(() => ({ data: [] }))
+        ]);
+        setAnalyticsData({ snapshot: snapRes.data, velocity: velRes.data || [] });
+      } catch (e) {
+        console.error("Analytics error", e);
+      }
+  }
 
   // Fee CSV Import functions
   const parseFeeCSV = (text) => {
@@ -316,30 +339,31 @@ export default function FeesPage() {
       return;
     }
     try {
-      const payload = {
-        student_id: paymentData.student_id,
-        fee_id: paymentData.fee_id,
-        amount: parseFloat(paymentData.amount),
-        receipt_file_name: paymentData.receipt_file_name || null,
-      };
+      const formData = new FormData();
+      formData.append("fee_id", paymentData.fee_id);
+      formData.append("amount", paymentData.amount);
+      formData.append("entry_source", paymentData.entry_source);
+      if (paymentData.notes) formData.append("notes", paymentData.notes);
       
-      // Add discount fields if provided
-      if (paymentData.discount_title) {
-        payload.discount_title = paymentData.discount_title;
+      if (paymentData.entry_source === "REMOTE" && !paymentData.file) {
+          toast({ title: "Error", description: "Receipt file is required for Remote payments", variant: "destructive" });
+          return;
       }
-      if (paymentData.discount_amount && parseFloat(paymentData.discount_amount) > 0) {
-        payload.discount_amount = parseFloat(paymentData.discount_amount);
+
+      if (paymentData.file) {
+          formData.append("file", paymentData.file);
       }
       
       await axios.post(
-        `${API_BASE}/api/payments`,
-        payload,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        `${API_BASE}/api/payments/record`,
+        formData,
+        { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "multipart/form-data" } }
       );
       toast({ title: "Success", description: "Payment recorded successfully" });
       setShowRecordPayment(false);
-      setPaymentData({ student_id: "", fee_id: "", amount: "", receipt_file_name: "", discount_title: "", discount_amount: "" });
+      setPaymentData({ student_id: "", fee_id: "", amount: "", entry_source: "REMOTE", notes: "", file: null });
       loadData();
+      if (canViewAnalytics) loadAnalytics();
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.detail || "Failed to record payment", variant: "destructive" });
     }
@@ -415,7 +439,6 @@ export default function FeesPage() {
     return grade?.name || "Unknown";
   };
 
-  // Phase 7C: CSV Export for Fees
   const handleExportFees = () => {
     if (fees.length === 0) {
       toast({ title: "No Data", description: "No fees to export", variant: "destructive" });
@@ -448,7 +471,6 @@ export default function FeesPage() {
     toast({ title: "Success", description: `Exported ${fees.length} fees` });
   };
 
-  // Phase 7C: CSV Export for Payments
   const handleExportPayments = () => {
     if (payments.length === 0) {
       toast({ title: "No Data", description: "No payments to export", variant: "destructive" });
@@ -482,7 +504,6 @@ export default function FeesPage() {
     toast({ title: "Success", description: `Exported ${payments.length} payments` });
   };
 
-  // Loading state
   if (!isHydrated || loading) {
     return (
       <div className="col-span-full space-y-6">
@@ -496,9 +517,15 @@ export default function FeesPage() {
     );
   }
 
+  // Snapshot Data Prep
+  const snapshotData = analyticsData.snapshot ? [
+      { name: 'Day-2', value: analyticsData.snapshot.day_minus_2, fill: '#0f766e' },
+      { name: 'Yesterday', value: analyticsData.snapshot.yesterday, fill: '#0f766e' },
+      { name: 'Today', value: analyticsData.snapshot.today, fill: '#003333' },
+  ] : [];
+
   return (
     <div className="space-y-6 col-span-full" data-testid="fees-page">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-100">Fees & Payments</h1>
         <div className="flex gap-2 flex-wrap">
@@ -531,178 +558,244 @@ export default function FeesPage() {
         </div>
       </div>
 
-      {/* Role-based info */}
-      {isParent && (
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="py-3 flex items-center gap-3">
-            <Users className="h-5 w-5 text-blue-400" />
-            <p className="text-sm text-slate-300">Showing fees and payments for your children.</p>
-          </CardContent>
-        </Card>
-      )}
+      <Tabs defaultValue="fees" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+         <TabsList className="bg-slate-900 border-slate-700">
+             <TabsTrigger value="fees">Fees & Transactions</TabsTrigger>
+             {canViewAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
+         </TabsList>
 
-      {/* Fees List */}
-      <Card className="bg-slate-900 border-slate-700">
-        <CardHeader>
-          <CardTitle className="text-slate-100 flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-emerald-400" />
-            Fee Structure
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {fees.length === 0 ? (
-            <div className="text-center py-8">
-              <DollarSign className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-              <p className="text-slate-500">No fees configured yet.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-2 text-left">Title</th>
-                    <th className="py-2 text-left">Amount (NPR)</th>
-                    <th className="py-2 text-left">Grade</th>
-                    <th className="py-2 text-left">Due Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fees.map((fee) => (
-                    <tr key={fee.id} className="border-b border-slate-800 text-slate-100">
-                      <td className="py-2">{fee.title}</td>
-                      <td className="py-2">{fee.amount?.toLocaleString()}</td>
-                      <td className="py-2">{getGradeName(fee.grade_id)}</td>
-                      <td className="py-2">{fee.due_date ? new Date(fee.due_date).toLocaleDateString() : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+         <TabsContent value="fees" className="space-y-6">
+            {/* Role-based info */}
+            {isParent && (
+                <Card className="bg-slate-800/50 border-slate-700">
+                <CardContent className="py-3 flex items-center gap-3">
+                    <Users className="h-5 w-5 text-blue-400" />
+                    <p className="text-sm text-slate-300">Showing fees and payments for your children.</p>
+                </CardContent>
+                </Card>
+            )}
 
-      {/* Payments List with Audit Info */}
-      <Card className="bg-slate-900 border-slate-700">
-        <CardHeader>
-          <CardTitle className="text-slate-100 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-blue-400" />
-            Payments
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {payments.length === 0 ? (
-            <div className="text-center py-8">
-              <Clock className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-              <p className="text-slate-500">No payments recorded yet.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-2 text-left">Student</th>
-                    <th className="py-2 text-left">Fee</th>
-                    <th className="py-2 text-left">Amount</th>
-                    <th className="py-2 text-left">Status</th>
-                    <th className="py-2 text-left">Verified By</th>
-                    <th className="py-2 text-left">Verified At</th>
-                    <th className="py-2 text-left">Discount</th>
-                    {canVerifyPayments && <th className="py-2 text-left">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((payment) => (
-                    <tr key={payment.id} className="border-b border-slate-800 text-slate-100">
-                      <td className="py-2">{getStudentName(payment.student_id)}</td>
-                      <td className="py-2">{getFeeName(payment.fee_id)}</td>
-                      <td className="py-2">
-                        <div>
-                          <span>NPR {payment.amount?.toLocaleString()}</span>
-                          {payment.original_amount && payment.original_amount !== payment.amount && (
-                            <span className="text-xs text-slate-500 line-through ml-2">
-                              {payment.original_amount?.toLocaleString()}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2">{getStatusBadge(payment.status)}</td>
-                      <td className="py-2">
-                        {payment.verified_by ? (
-                          <div className="text-xs">
-                            <span className="text-slate-300">{ROLE_LABELS[payment.verified_by_role] || payment.verified_by_role}</span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        {payment.verified_at ? (
-                          <span className="text-xs text-slate-400">
-                            {new Date(payment.verified_at).toLocaleString()}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        {payment.discount_amount ? (
-                          <div className="text-xs">
-                            {payment.discount_title && (
-                              <p className="text-emerald-300 font-medium">{payment.discount_title}</p>
+            {/* Fees List */}
+            <Card className="bg-slate-900 border-slate-700">
+                <CardHeader>
+                <CardTitle className="text-slate-100 flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-emerald-400" />
+                    Fee Structure
+                </CardTitle>
+                </CardHeader>
+                <CardContent>
+                {fees.length === 0 ? (
+                    <div className="text-center py-8">
+                    <DollarSign className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-500">No fees configured yet.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                        <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                            <th className="py-2 text-left">Title</th>
+                            <th className="py-2 text-left">Amount (NPR)</th>
+                            <th className="py-2 text-left">Grade</th>
+                            <th className="py-2 text-left">Due Date</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {fees.map((fee) => (
+                            <tr key={fee.id} className="border-b border-slate-800 text-slate-100">
+                            <td className="py-2">{fee.title}</td>
+                            <td className="py-2">{fee.amount?.toLocaleString()}</td>
+                            <td className="py-2">{getGradeName(fee.grade_id)}</td>
+                            <td className="py-2">{fee.due_date ? new Date(fee.due_date).toLocaleDateString() : "-"}</td>
+                            </tr>
+                        ))}
+                        </tbody>
+                    </table>
+                    </div>
+                )}
+                </CardContent>
+            </Card>
+
+            {/* Payments List */}
+            <Card className="bg-slate-900 border-slate-700">
+                <CardHeader>
+                <CardTitle className="text-slate-100 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-blue-400" />
+                    Payments
+                </CardTitle>
+                </CardHeader>
+                <CardContent>
+                {payments.length === 0 ? (
+                    <div className="text-center py-8">
+                    <Clock className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-500">No payments recorded yet.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                        <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                            <th className="py-2 text-left">Student</th>
+                            <th className="py-2 text-left">Fee</th>
+                            <th className="py-2 text-left">Amount</th>
+                            <th className="py-2 text-left">Status</th>
+                            <th className="py-2 text-left">Verified By</th>
+                            <th className="py-2 text-left">Verified At</th>
+                            <th className="py-2 text-left">Discount</th>
+                            {canVerifyPayments && <th className="py-2 text-left">Actions</th>}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {payments.map((payment) => (
+                            <tr key={payment.id} className="border-b border-slate-800 text-slate-100">
+                            <td className="py-2">{getStudentName(payment.student_id)}</td>
+                            <td className="py-2">{getFeeName(payment.fee_id)}</td>
+                            <td className="py-2">
+                                <div>
+                                <span>NPR {payment.amount?.toLocaleString()}</span>
+                                {payment.original_amount && payment.original_amount !== payment.amount && (
+                                    <span className="text-xs text-slate-500 line-through ml-2">
+                                    {payment.original_amount?.toLocaleString()}
+                                    </span>
+                                )}
+                                </div>
+                            </td>
+                            <td className="py-2">{getStatusBadge(payment.status)}</td>
+                            <td className="py-2">
+                                {payment.verified_by ? (
+                                <div className="text-xs">
+                                    <span className="text-slate-300">{ROLE_LABELS[payment.verified_by_role] || payment.verified_by_role}</span>
+                                </div>
+                                ) : (
+                                <span className="text-slate-500">-</span>
+                                )}
+                            </td>
+                            <td className="py-2">
+                                {payment.verified_at ? (
+                                <span className="text-xs text-slate-400">
+                                    {new Date(payment.verified_at).toLocaleString()}
+                                </span>
+                                ) : (
+                                <span className="text-slate-500">-</span>
+                                )}
+                            </td>
+                            <td className="py-2">
+                                {payment.discount_amount ? (
+                                <div className="text-xs">
+                                    {payment.discount_title && (
+                                    <p className="text-emerald-300 font-medium">{payment.discount_title}</p>
+                                    )}
+                                    <span className="text-emerald-400">-NPR {payment.discount_amount?.toLocaleString()}</span>
+                                    {payment.discount_reason && (
+                                    <p className="text-slate-500 truncate max-w-24" title={payment.discount_reason}>
+                                        {payment.discount_reason}
+                                    </p>
+                                    )}
+                                </div>
+                                ) : (
+                                <span className="text-slate-500">-</span>
+                                )}
+                            </td>
+                            {canVerifyPayments && (
+                                <td className="py-2">
+                                <div className="flex gap-1">
+                                    {payment.status === "pending" && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="border-slate-600 text-slate-300 text-xs"
+                                        onClick={() => {
+                                        setSelectedPayment(payment);
+                                        setShowVerifyPayment(true);
+                                        }}
+                                    >
+                                        Verify
+                                    </Button>
+                                    )}
+                                    {canApplyDiscount && payment.status !== "rejected" && !payment.discount_amount && (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-emerald-400 text-xs"
+                                        onClick={() => {
+                                        setSelectedPayment(payment);
+                                        setShowDiscount(true);
+                                        }}
+                                    >
+                                        <Percent className="w-3 h-3 mr-1" />
+                                        Discount
+                                    </Button>
+                                    )}
+                                </div>
+                                </td>
                             )}
-                            <span className="text-emerald-400">-NPR {payment.discount_amount?.toLocaleString()}</span>
-                            {payment.discount_reason && (
-                              <p className="text-slate-500 truncate max-w-24" title={payment.discount_reason}>
-                                {payment.discount_reason}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      {canVerifyPayments && (
-                        <td className="py-2">
-                          <div className="flex gap-1">
-                            {payment.status === "pending" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="border-slate-600 text-slate-300 text-xs"
-                                onClick={() => {
-                                  setSelectedPayment(payment);
-                                  setShowVerifyPayment(true);
-                                }}
-                              >
-                                Verify
-                              </Button>
-                            )}
-                            {canApplyDiscount && payment.status !== "rejected" && !payment.discount_amount && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-emerald-400 text-xs"
-                                onClick={() => {
-                                  setSelectedPayment(payment);
-                                  setShowDiscount(true);
-                                }}
-                              >
-                                <Percent className="w-3 h-3 mr-1" />
-                                Discount
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                            </tr>
+                        ))}
+                        </tbody>
+                    </table>
+                    </div>
+                )}
+                </CardContent>
+            </Card>
+         </TabsContent>
+
+         <TabsContent value="analytics" className="space-y-6">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <Card className="bg-slate-900 border-slate-700">
+                     <CardHeader><CardTitle>3-Day Revenue Snapshot</CardTitle></CardHeader>
+                     <CardContent>
+                         {analyticsData.snapshot ? (
+                             <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={snapshotData}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                        <XAxis dataKey="name" stroke="#94a3b8" />
+                                        <YAxis stroke="#94a3b8" />
+                                        <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                                        <Bar dataKey="value" name="Revenue (NPR)" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                                <div className="mt-4 text-center">
+                                     <p className="text-slate-400">Change (Today vs Yesterday):
+                                        <span className={analyticsData.snapshot.percent_change >= 0 ? "text-green-400 ml-2" : "text-red-400 ml-2"}>
+                                            {analyticsData.snapshot.percent_change}%
+                                        </span>
+                                     </p>
+                                </div>
+                             </div>
+                         ) : (
+                             <div className="h-[300px] flex items-center justify-center text-slate-500">
+                                 No data available
+                             </div>
+                         )}
+                     </CardContent>
+                 </Card>
+
+                 <Card className="bg-slate-900 border-slate-700">
+                     <CardHeader><CardTitle>Revenue Velocity (Trend)</CardTitle></CardHeader>
+                     <CardContent>
+                         {analyticsData.velocity.length > 0 ? (
+                             <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={analyticsData.velocity}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                        <XAxis dataKey="period" stroke="#94a3b8" />
+                                        <YAxis stroke="#94a3b8" />
+                                        <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                                        <Line type="monotone" dataKey="amount" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                             </div>
+                         ) : (
+                            <div className="h-[300px] flex items-center justify-center text-slate-500">
+                                No trend data available
+                            </div>
+                         )}
+                     </CardContent>
+                 </Card>
+             </div>
+         </TabsContent>
+      </Tabs>
 
       {/* Create Fee Modal */}
       <Dialog open={showCreateFee} onOpenChange={setShowCreateFee}>
@@ -854,47 +947,42 @@ export default function FeesPage() {
                 className="bg-slate-800 border-slate-600"
               />
             </div>
+
+            {/* Entry Source Selection */}
             <div>
-              <Label>Receipt Reference (optional)</Label>
+                <Label>Entry Source *</Label>
+                <Select value={paymentData.entry_source} onValueChange={(val) => setPaymentData({ ...paymentData, entry_source: val })}>
+                    <SelectTrigger className="bg-slate-800 border-slate-600">
+                        <SelectValue placeholder="Select source" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-600">
+                        <SelectItem value="REMOTE">Remote (Bank Transfer/Receipt)</SelectItem>
+                        <SelectItem value="OFFICE_CASH">Office Cash (In-Person)</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            {/* File Upload (Conditional) */}
+            {(paymentData.entry_source === "REMOTE" || paymentData.entry_source === "OFFICE_CASH") && (
+                <div>
+                    <Label>Receipt Attachment {paymentData.entry_source === "REMOTE" ? "*" : "(Optional)"}</Label>
+                    <Input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => setPaymentData({ ...paymentData, file: e.target.files?.[0] || null })}
+                        className="bg-slate-800 border-slate-600 cursor-pointer"
+                    />
+                </div>
+            )}
+
+            <div>
+              <Label>Notes (optional)</Label>
               <Input
-                value={paymentData.receipt_file_name}
-                onChange={(e) => setPaymentData({ ...paymentData, receipt_file_name: e.target.value })}
-                placeholder="e.g., receipt_12345.pdf"
+                value={paymentData.notes}
+                onChange={(e) => setPaymentData({ ...paymentData, notes: e.target.value })}
+                placeholder="Reference #, etc."
                 className="bg-slate-800 border-slate-600"
               />
-            </div>
-            
-            {/* Discount Section */}
-            <div className="border-t border-slate-700 pt-4 mt-4">
-              <h4 className="text-sm font-medium text-slate-300 mb-3">Discount (Optional)</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Discount Title</Label>
-                  <Input
-                    value={paymentData.discount_title}
-                    onChange={(e) => setPaymentData({ ...paymentData, discount_title: e.target.value })}
-                    placeholder="e.g., Sibling Discount"
-                    className="bg-slate-800 border-slate-600"
-                  />
-                </div>
-                <div>
-                  <Label>Discount Amount (NPR)</Label>
-                  <Input
-                    type="number"
-                    value={paymentData.discount_amount}
-                    onChange={(e) => setPaymentData({ ...paymentData, discount_amount: e.target.value })}
-                    placeholder="500"
-                    className="bg-slate-800 border-slate-600"
-                  />
-                </div>
-              </div>
-              {paymentData.discount_amount && parseFloat(paymentData.discount_amount) > 0 && (
-                <div className="mt-2 p-2 bg-emerald-900/30 border border-emerald-700/50 rounded-lg">
-                  <p className="text-sm text-emerald-400">
-                    Final amount: NPR {(parseFloat(paymentData.amount || 0) - parseFloat(paymentData.discount_amount || 0)).toLocaleString()}
-                  </p>
-                </div>
-              )}
             </div>
           </div>
           <DialogFooter>
@@ -1025,7 +1113,6 @@ export default function FeesPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Instructions */}
             <div className="bg-slate-800 rounded-lg p-4 text-sm space-y-2">
               <p className="text-slate-300 font-medium">Required columns:</p>
               <code className="text-xs text-green-400 bg-slate-900 px-2 py-1 rounded">
@@ -1035,7 +1122,6 @@ export default function FeesPage() {
               <p className="text-slate-400">Example: <code className="text-xs bg-slate-900 px-1 rounded">Tuition Q1,5000,Grade 1,2025-02-15</code></p>
             </div>
 
-            {/* File Upload */}
             <div>
               <label className="flex flex-col items-center gap-2 p-6 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-slate-500 transition-colors">
                 <Upload className="h-8 w-8 text-slate-400" />
@@ -1047,12 +1133,10 @@ export default function FeesPage() {
                   accept=".csv"
                   onChange={handleFeeCsvSelect}
                   className="hidden"
-                  data-testid="fees-csv-file-input"
                 />
               </label>
             </div>
 
-            {/* Preview */}
             {feeCsvPreview.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm text-slate-300 font-medium">Preview (first 5 rows):</p>
@@ -1081,7 +1165,6 @@ export default function FeesPage() {
               </div>
             )}
 
-            {/* Validation Errors */}
             {feeCsvErrors.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm text-red-400 font-medium flex items-center gap-2">
@@ -1098,7 +1181,6 @@ export default function FeesPage() {
               </div>
             )}
 
-            {/* Success state */}
             {feeCsvFile && feeCsvErrors.length === 0 && feeCsvPreview.length > 0 && (
               <div className="flex items-center gap-2 text-green-400 text-sm">
                 <CheckCircle2 className="h-4 w-4" />
@@ -1118,7 +1200,6 @@ export default function FeesPage() {
               onClick={handleFeesCsvImport}
               disabled={importingFees || !feeCsvFile || feeCsvErrors.length > 0}
               className="bg-green-600 hover:bg-green-500"
-              data-testid="confirm-fees-csv-import"
             >
               {importingFees ? "Importing..." : "Import Fees"}
             </Button>
@@ -1128,4 +1209,3 @@ export default function FeesPage() {
     </div>
   );
 }
-
