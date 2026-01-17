@@ -1,0 +1,14 @@
+@import "tailwindcss";
+@theme {
+  --color-background: 222 47% 11%;
+  --color-foreground: 210 40% 98%;
+}
+
+:root {
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+}
+
+body {
+  @apply bg-white text-gray-900;
+}

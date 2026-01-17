@@ -1,0 +1,34 @@
+# Agent Zero Metadata
+.a0proj/
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+venv/
+env/
+.env
+.env.*
+requirements.txt
+
+# Node / React
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+dev.db
+
+# Logs
+*.log
+
+# Static uploads
+static/logos/
