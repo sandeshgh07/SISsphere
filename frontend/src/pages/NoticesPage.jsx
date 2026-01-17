@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import StudentCheckoutTab from "@/components/StudentCheckoutTab";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
@@ -30,6 +31,7 @@ export default function NoticesPage() {
   const { accessToken, user } = useAuth();
   const { toast } = useToast();
   
+  const [activeTab, setActiveTab] = useState('NOTICES');
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreateNotice, setShowCreateNotice] = useState(false);
@@ -49,6 +51,7 @@ export default function NoticesPage() {
   });
 
   const canCreateNotice = user?.role && ["principal", "school_admin"].includes(user.role);
+  const canManageCheckout = user?.role && ["principal", "school_admin", "accountant"].includes(user.role);
 
   // Determine what notices the user can see based on role
   const canSeeNotice = (notice) => {
@@ -143,10 +146,24 @@ export default function NoticesPage() {
   return (
     <div className="space-y-6 col-span-full" data-testid="notices-page">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-100" data-testid="notices-page-title">
-          Notices
-        </h1>
-        {canCreateNotice && (
+        <div className="flex gap-6 items-baseline">
+            <h1
+                className={`text-2xl font-semibold cursor-pointer transition-colors ${activeTab === 'NOTICES' ? 'text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+                onClick={() => setActiveTab('NOTICES')}
+            >
+              Notices
+            </h1>
+            {canManageCheckout && (
+                <h1
+                    className={`text-2xl font-semibold cursor-pointer transition-colors ${activeTab === 'CHECKOUT' ? 'text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+                    onClick={() => setActiveTab('CHECKOUT')}
+                >
+                  Student Checkout
+                </h1>
+            )}
+        </div>
+
+        {activeTab === 'NOTICES' && canCreateNotice && (
           <Button
             onClick={() => setShowCreateNotice(true)}
             className="bg-blue-600 hover:bg-blue-500"
@@ -158,51 +175,55 @@ export default function NoticesPage() {
         )}
       </div>
 
-      {/* Notices List */}
-      <div className="space-y-4">
-        {loading ? (
-          <Card className="bg-slate-900 border-slate-700">
-            <CardContent className="py-8 text-center">
-              <p className="text-slate-400 text-sm">Loading notices...</p>
-            </CardContent>
-          </Card>
-        ) : visibleNotices.length === 0 ? (
-          <Card className="bg-slate-900 border-slate-700">
-            <CardContent className="py-8 text-center" data-testid="no-notices">
-              <p className="text-slate-500 text-sm">No notices available.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          visibleNotices.map((notice) => (
-            <Card
-              key={notice.id}
-              className={`bg-slate-900 border-slate-700 ${
-                notice.severity === "critical" ? "border-l-4 border-l-red-500" :
-                notice.severity === "important" ? "border-l-4 border-l-yellow-500" : ""
-              }`}
-              data-testid={`notice-card-${notice.id}`}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-slate-100 text-lg">{notice.title}</CardTitle>
-                  <div className="flex items-center gap-2">
-                    {getSeverityBadge(notice.severity)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-slate-400 mt-1">
-                  <span>Audience: {getAudienceDisplay(notice.audience)}</span>
-                  <span>
-                    Posted: {notice.created_at ? new Date(notice.created_at).toLocaleDateString() : "-"}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-slate-300 text-sm whitespace-pre-wrap">{notice.content}</p>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+      {activeTab === 'CHECKOUT' ? (
+          <StudentCheckoutTab />
+      ) : (
+          /* Notices List */
+          <div className="space-y-4">
+            {loading ? (
+              <Card className="bg-slate-900 border-slate-700">
+                <CardContent className="py-8 text-center">
+                  <p className="text-slate-400 text-sm">Loading notices...</p>
+                </CardContent>
+              </Card>
+            ) : visibleNotices.length === 0 ? (
+              <Card className="bg-slate-900 border-slate-700">
+                <CardContent className="py-8 text-center" data-testid="no-notices">
+                  <p className="text-slate-500 text-sm">No notices available.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              visibleNotices.map((notice) => (
+                <Card
+                  key={notice.id}
+                  className={`bg-slate-900 border-slate-700 ${
+                    notice.severity === "critical" ? "border-l-4 border-l-red-500" :
+                    notice.severity === "important" ? "border-l-4 border-l-yellow-500" : ""
+                  }`}
+                  data-testid={`notice-card-${notice.id}`}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-slate-100 text-lg">{notice.title}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        {getSeverityBadge(notice.severity)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-slate-400 mt-1">
+                      <span>Audience: {getAudienceDisplay(notice.audience)}</span>
+                      <span>
+                        Posted: {notice.created_at ? new Date(notice.created_at).toLocaleDateString() : "-"}
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-slate-300 text-sm whitespace-pre-wrap">{notice.content}</p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+      )}
 
       {/* Create Notice Modal */}
       <Dialog open={showCreateNotice} onOpenChange={setShowCreateNotice}>
@@ -287,4 +308,3 @@ export default function NoticesPage() {
     </div>
   );
 }
-

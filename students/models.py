@@ -16,6 +16,7 @@ class Student(Base):
     roll_number = Column(String, nullable=False)
     email = Column(String, nullable=True)
     address = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
 
     # Linked grade, section, academic year
@@ -24,6 +25,9 @@ class Student(Base):
     academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=True)
 
     retention_flag = Column(Boolean, default=False) # Manual override for promotion
+
+    pickup_blocked = Column(Boolean, default=False)
+    pickup_block_reason = Column(String, nullable=True)
 
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -39,7 +43,18 @@ class ParentStudentLink(Base):
     parent_id = Column(String, ForeignKey("users.id"), nullable=False)
     student_id = Column(String, ForeignKey("students.id"), nullable=False)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    is_authorized_pickup = Column(Boolean, default=True)
     __table_args__ = (Index("idx_ps_links_school_id", "school_id"),)
+
+class SecurityBlock(Base):
+    __tablename__ = "security_blocks"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    student_id = Column(String, ForeignKey("students.id"), nullable=True)
+    parent_id = Column(String, ForeignKey("users.id"), nullable=True)
+    reason = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class RiskSeverity(str, enum.Enum):
     HIGH = "HIGH"

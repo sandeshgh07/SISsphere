@@ -16,6 +16,8 @@ class StudentResponse(BaseModel):
     roll_number: str
     grade_name: Optional[str] = None
     section_name: Optional[str] = None
+    pickup_blocked: bool = False
+    pickup_block_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -97,7 +99,9 @@ def list_students(
             last_name=student.last_name,
             roll_number=student.roll_number,
             grade_name=grade_name,
-            section_name=section_name
+            section_name=section_name,
+            pickup_blocked=student.pickup_blocked,
+            pickup_block_reason=student.pickup_block_reason
         ))
 
     return results
