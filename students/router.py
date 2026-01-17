@@ -10,6 +10,13 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/students", tags=["students"])
 
+class StudentUpdate(BaseModel):
+    grade_id: Optional[str] = None
+    section_id: Optional[str] = None
+    status: Optional[str] = None
+    parent_ids: Optional[List[str]] = None
+    reason: Optional[str] = None
+
 class StudentResponse(BaseModel):
     id: str
     first_name: str
@@ -106,6 +113,61 @@ def list_students(
         ))
 
     return results
+
+@router.patch("/{student_id}")
+def update_student(
+    student_id: str,
+    update_data: StudentUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    student = db.query(student_models.Student).filter(
+        student_models.Student.id == student_id,
+        student_models.Student.school_id == tenant.school_id
+    ).first()
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    if update_data.grade_id is not None:
+        # Check if grade exists
+        if not db.query(academic_models.Grade).filter(academic_models.Grade.id == update_data.grade_id, academic_models.Grade.school_id == tenant.school_id).first():
+             raise HTTPException(status_code=400, detail="Invalid grade_id")
+
+        # Governance: Check reason if changing grade (promotion/demotion)
+        if update_data.grade_id != student.grade_id:
+             reason_text = update_data.reason or f"Grade change: {student.grade_id} -> {update_data.grade_id}"
+             set_reason(reason_text)
+
+        student.grade_id = update_data.grade_id
+
+    if update_data.section_id is not None:
+        # Check if section exists
+        if update_data.section_id and not db.query(academic_models.Section).filter(academic_models.Section.id == update_data.section_id, academic_models.Section.school_id == tenant.school_id).first():
+             raise HTTPException(status_code=400, detail="Invalid section_id")
+        student.section_id = update_data.section_id
+
+    if update_data.status is not None:
+        student.is_active = (update_data.status == "active")
+
+    if update_data.parent_ids is not None:
+        # Handle parent assignment (simplistic replace or add?)
+        # For now, just simplistic re-link for demo purposes or skip if too complex for patch
+        # The frontend sends parent_ids.
+        # Clear existing
+        db.query(student_models.ParentStudentLink).filter(student_models.ParentStudentLink.student_id == student.id).delete()
+        for pid in update_data.parent_ids:
+            link = student_models.ParentStudentLink(
+                parent_id=pid,
+                student_id=student.id,
+                school_id=tenant.school_id
+            )
+            db.add(link)
+
+    db.commit()
+    db.refresh(student)
+    return student
 
 @router.delete("/{student_id}")
 def delete_student(
