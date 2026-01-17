@@ -78,7 +78,9 @@ export default function StudentsPage() {
 
   // Action modals state
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [originalStudent, setOriginalStudent] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [showAssignParentModal, setShowAssignParentModal] = useState(false);
@@ -495,15 +497,20 @@ export default function StudentsPage() {
     }
   };
 
-  const handleToggleStatus = async (student) => {
+  const handleToggleStatus = async (student, reason = null) => {
     setActionLoading(true);
     try {
       const newStatus = student.status === "active" ? "inactive" : "active";
+      const payload = { status: newStatus };
+      if (reason) payload.reason = reason;
+
       await axios.patch(`${API_BASE}/api/students/${student.id}`,
-        { status: newStatus },
+        payload,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       toast({ title: "Success", description: `Student ${newStatus === "active" ? "enabled" : "disabled"}` });
+      setShowDeactivateModal(false);
+      setJustification("");
       loadData();
     } catch (e) {
       toast({ title: "Error", description: "Failed to update status", variant: "destructive" });
@@ -753,7 +760,7 @@ export default function StudentsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => { setSelectedStudent(student); setShowEditModal(true); }}
+                                onClick={() => { setOriginalStudent(student); setSelectedStudent(student); setShowEditModal(true); }}
                                 className="text-amber-400 hover:text-amber-300 hover:bg-amber-900/30 h-8 w-8 p-0"
                                 title="Edit Grade/Section"
                               >
@@ -780,7 +787,14 @@ export default function StudentsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleToggleStatus(student)}
+                                onClick={() => {
+                                  if (student.status === "active") {
+                                    setSelectedStudent(student);
+                                    setShowDeactivateModal(true);
+                                  } else {
+                                    handleToggleStatus(student);
+                                  }
+                                }}
                                 disabled={actionLoading}
                                 className={student.status === "active" ? "text-orange-400 hover:text-orange-300 hover:bg-orange-900/30 h-8 w-8 p-0" : "text-green-400 hover:text-green-300 hover:bg-green-900/30 h-8 w-8 p-0"}
                                 title={student.status === "active" ? "Disable" : "Enable"}
@@ -1210,6 +1224,40 @@ export default function StudentsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Deactivate Student Modal */}
+      <Dialog open={showDeactivateModal} onOpenChange={setShowDeactivateModal}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+          <DialogHeader>
+            <DialogTitle className="text-orange-400">Deactivate Student</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-slate-300">
+              Are you sure you want to deactivate <strong>{selectedStudent?.first_name} {selectedStudent?.last_name}</strong>?
+            </p>
+            <div>
+              <Label>Justification * (Min 10 chars)</Label>
+              <textarea
+                value={justification}
+                onChange={(e) => setJustification(e.target.value)}
+                placeholder="Reason for deactivation..."
+                className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] mt-2"
+              />
+              <p className="text-xs text-slate-500 mt-1">{justification.length}/10</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeactivateModal(false)} className="border-slate-600">Cancel</Button>
+            <Button
+              onClick={() => handleToggleStatus(selectedStudent, justification)}
+              disabled={actionLoading || justification.length < 10}
+              className="bg-orange-600 hover:bg-orange-500"
+            >
+              {actionLoading ? "Processing..." : "Deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Student Modal */}
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
         <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
@@ -1252,22 +1300,24 @@ export default function StudentsPage() {
               </Select>
               <p className="text-xs text-slate-500 mt-1">Sections are school-wide and shared across all grades.</p>
             </div>
-            <div>
-              <Label>Justification * (Min 10 chars)</Label>
-              <textarea
-                value={justification}
-                onChange={(e) => setJustification(e.target.value)}
-                placeholder="Explain why you are changing the grade/section..."
-                className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] mt-2"
-              />
-              <p className="text-xs text-slate-500 mt-1">{justification.length}/10</p>
-            </div>
+            {originalStudent?.section_id && (
+              <div>
+                <Label>Justification * (Min 10 chars)</Label>
+                <textarea
+                  value={justification}
+                  onChange={(e) => setJustification(e.target.value)}
+                  placeholder="Explain why you are changing the grade/section..."
+                  className="flex w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] mt-2"
+                />
+                <p className="text-xs text-slate-500 mt-1">{justification.length}/10</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditModal(false)} className="border-slate-600">Cancel</Button>
             <Button
                 onClick={handleUpdateStudent}
-                disabled={actionLoading || justification.length < 10}
+                disabled={actionLoading || (originalStudent?.section_id && justification.length < 10)}
                 className="bg-blue-600 hover:bg-blue-500"
             >
               {actionLoading ? "Saving..." : "Save"}
