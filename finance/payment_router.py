@@ -15,6 +15,7 @@ from finance import models as finance_models
 from finance import schemas as finance_schemas
 from finance.gateway import gateway_service
 from database import engine
+from pydantic import BaseModel
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -288,6 +289,9 @@ def get_payment_status(
         "remaining_amount": invoice.total_amount - invoice.amount_paid
     }
 
+class PaymentVerifyRequest(BaseModel):
+    status: str # "verified" or "rejected"
+    notes: Optional[str] = None
 
 @router.post("/record")
 async def record_payment(
@@ -303,8 +307,8 @@ async def record_payment(
 ):
     """
     Hybrid Payment Entry:
-    - REMOTE: Requires Receipt Attachment.
-    - OFFICE_CASH: Attachment optional, logs accountant as verifier.
+    - REMOTE: Requires Receipt Attachment. Starts as PENDING.
+    - OFFICE_CASH: Attachment optional, logs accountant as verifier. Starts as SUCCEEDED.
     """
     if not invoice_id and not fee_id:
         raise HTTPException(status_code=400, detail="Either invoice_id or fee_id is required")
@@ -318,13 +322,18 @@ async def record_payment(
     # 1. Validation Logic
     receipt_url = None
     verifier_id = None
+    initial_status = finance_models.PaymentStatus.SUCCEEDED
 
     if source_enum == finance_models.EntrySource.REMOTE:
         if not file:
             raise HTTPException(status_code=400, detail="Receipt attachment is REQUIRED for REMOTE payments")
+        # REMOTE payments start as PENDING verification
+        initial_status = finance_models.PaymentStatus.PENDING
     elif source_enum == finance_models.EntrySource.OFFICE_CASH:
         # Attachment optional
         verifier_id = current_user.id
+        # CASH payments are verified by default (since accountant enters them)
+        initial_status = finance_models.PaymentStatus.SUCCEEDED
 
     # 2. File Upload
     if file:
@@ -399,7 +408,7 @@ async def record_payment(
         gateway_txn_id=manual_txn_id,
         amount=amount,
         currency=currency,
-        status=finance_models.PaymentStatus.SUCCEEDED,
+        status=initial_status,
         entry_source=source_enum,
         verifier_id=verifier_id,
         receipt_url=receipt_url,
@@ -408,32 +417,95 @@ async def record_payment(
     )
     db.add(payment)
 
-    # 6. Update Status
-    if invoice:
-        invoice.amount_paid += amount
-        if invoice.amount_paid >= invoice.total_amount - 0.01:
-             invoice.status = finance_models.InvoiceStatus.PAID
-        else:
-             invoice.status = finance_models.InvoiceStatus.PARTIALLY_PAID
-    elif fee:
-        # Check if fully paid
-        # Need to recalculate total paid including this one
-        new_paid_sum = (db.query(func.sum(finance_models.Payment.amount)).filter(
-            finance_models.Payment.fee_id == fee_id,
-            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
-        ).scalar() or 0.0) + amount # Note: this query might not include current uncommitted one depending on isolation, but we are adding 'amount' explicitly.
-        # Actually safer to just use previous sum + amount
-        # Recalculated locally:
-        # paid_sum already fetched.
-        final_sum = (paid_sum if 'paid_sum' in locals() else 0.0) + amount
+    # 6. Update Status (Only if SUCCEEDED immediately)
+    if initial_status == finance_models.PaymentStatus.SUCCEEDED:
+        if invoice:
+            invoice.amount_paid += amount
+            if invoice.amount_paid >= invoice.total_amount - 0.01:
+                 invoice.status = finance_models.InvoiceStatus.PAID
+            else:
+                 invoice.status = finance_models.InvoiceStatus.PARTIALLY_PAID
+        elif fee:
+            # Recalculate total paid including this one
+            final_sum = (paid_sum if 'paid_sum' in locals() else 0.0) + amount
 
-        if final_sum >= fee.amount - 0.01:
-            fee.status = "paid"
-            fee.paid_date = dt.now(timezone.utc)
-        else:
-            fee.status = "pending"
+            if final_sum >= fee.amount - 0.01:
+                fee.status = "paid"
+                fee.paid_date = dt.now(timezone.utc)
+            else:
+                fee.status = "pending"
 
     db.commit()
     db.refresh(payment)
 
-    return {"status": "success", "payment_id": payment.id}
+    return {"status": "success", "payment_id": payment.id, "payment_status": payment.status}
+
+@router.post("/{payment_id}/verify")
+def verify_payment(
+    payment_id: str,
+    request: PaymentVerifyRequest,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    current_user = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL))
+):
+    """
+    Verify or Reject a PENDING payment.
+    """
+    payment = db.query(finance_models.Payment).filter(
+        finance_models.Payment.id == payment_id,
+        finance_models.Payment.school_id == tenant.school_id
+    ).first()
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if payment.status != finance_models.PaymentStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Payment is not pending verification")
+
+    if request.status == "verified":
+        payment.status = finance_models.PaymentStatus.SUCCEEDED
+        payment.verifier_id = current_user.id
+        if request.notes:
+            payment.notes = (payment.notes or "") + f" | Verified: {request.notes}"
+
+        # Apply Balance Update logic (same as record_payment)
+        if payment.invoice_id:
+            invoice = db.query(finance_models.Invoice).with_for_update().filter(
+                finance_models.Invoice.id == payment.invoice_id
+            ).first()
+            if invoice:
+                invoice.amount_paid += payment.amount
+                if invoice.amount_paid >= invoice.total_amount - 0.01:
+                    invoice.status = finance_models.InvoiceStatus.PAID
+                else:
+                    invoice.status = finance_models.InvoiceStatus.PARTIALLY_PAID
+
+        elif payment.fee_id:
+            fee = db.query(finance_models.Fee).with_for_update().filter(
+                finance_models.Fee.id == payment.fee_id
+            ).first()
+            if fee:
+                paid_sum = db.query(func.sum(finance_models.Payment.amount)).filter(
+                    finance_models.Payment.fee_id == fee.id,
+                    finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
+                ).scalar() or 0.0
+                # Add current payment (now SUCCEEDED)
+                final_sum = paid_sum + payment.amount
+
+                if final_sum >= fee.amount - 0.01:
+                    fee.status = "paid"
+                    fee.paid_date = dt.now(timezone.utc)
+                else:
+                    fee.status = "pending"
+
+    elif request.status == "rejected":
+        payment.status = finance_models.PaymentStatus.REJECTED
+        payment.verifier_id = current_user.id
+        if request.notes:
+            payment.notes = (payment.notes or "") + f" | Rejected: {request.notes}"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    db.commit()
+    db.refresh(payment)
+    return {"status": "success", "payment_status": payment.status}

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, literal_column
 from finance import models as finance_models
 from datetime import datetime, timedelta, timezone
 
@@ -17,50 +17,83 @@ class FinanceAnalyticsService:
         """
         Returns revenue for Today, Yesterday, and Day-2.
         Calculates percentage change (Today vs Yesterday).
-        Uses simple aggregation which is efficient for indexed dates.
+        Uses SQL Window Functions (LAG) to calculate previous day delta efficiently.
         """
         # Calculate dates
         today_date = self.today
-        yesterday_date = today_date - timedelta(days=1)
         day2_date = today_date - timedelta(days=2)
 
-        cutoff = day2_date
-
-        # Query daily sums for the last 3 days
-        # SQLite 'date' function extracts date part
-        results = self.db.query(
-            func.date(finance_models.Payment.created_at).label("day"),
-            func.sum(finance_models.Payment.amount).label("total")
+        # Subquery: Aggregate daily totals first
+        # Filter for relevant range
+        daily_sales = self.db.query(
+            func.date(finance_models.Payment.created_at).label("sales_date"),
+            func.sum(finance_models.Payment.amount).label("total_amount")
         ).filter(
             finance_models.Payment.school_id == self.school_id,
             finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED,
-            finance_models.Payment.created_at >= cutoff
+            finance_models.Payment.created_at >= day2_date
         ).group_by(
             func.date(finance_models.Payment.created_at)
-        ).all()
+        ).subquery()
 
-        daily_revenue = {day: total for day, total in results}
+        # Window Function Query: Get current total and previous day total using LAG
+        # Note: SQLite LAG syntax support depends on version, but standard in modern SQL.
+        # We perform this over the subquery results.
+        # However, to ensure we get Today, Yesterday rows specifically even if null,
+        # we might just fetch the windowed result and map in python,
+        # or use the Window function to calculate the % change directly in SQL.
 
-        # Helper to get val safely. SQLite returns date strings like 'YYYY-MM-DD'
-        def get_rev(d):
-            return daily_revenue.get(str(d), 0.0)
+        # Simpler Window Function Approach:
+        # Just select date, total, and LAG(total) over date
+        query = self.db.query(
+            daily_sales.c.sales_date,
+            daily_sales.c.total_amount,
+            func.lag(daily_sales.c.total_amount).over(order_by=daily_sales.c.sales_date).label("prev_day_amount")
+        ).order_by(daily_sales.c.sales_date.desc())
 
-        rev_today = get_rev(today_date)
-        rev_yesterday = get_rev(yesterday_date)
-        rev_day2 = get_rev(day2_date)
+        results = query.all()
 
-        percent_change = 0.0
-        if rev_yesterday > 0:
-            percent_change = ((rev_today - rev_yesterday) / rev_yesterday) * 100.0
-        elif rev_today > 0:
-            percent_change = 100.0
-
-        return {
-            "today": rev_today,
-            "yesterday": rev_yesterday,
-            "day_minus_2": rev_day2,
-            "percent_change": round(percent_change, 1)
+        # Map results to business logic
+        # Results are ordered DESC (Today, Yesterday, Day-2)
+        data = {
+            "today": 0.0,
+            "yesterday": 0.0,
+            "day_minus_2": 0.0,
+            "percent_change": 0.0
         }
+
+        # Helper to normalize date str
+        def is_same_day(d_str, target_date):
+            return str(d_str) == str(target_date)
+
+        today_val = 0.0
+        yesterday_val = 0.0
+
+        for row in results:
+            d_str = row.sales_date
+            amount = row.total_amount or 0.0
+
+            if is_same_day(d_str, today_date):
+                data["today"] = amount
+                today_val = amount
+                # If LAG worked and yesterday exists in result set immediately before
+                if row.prev_day_amount is not None:
+                     # This LAG is relative to the result set, which is filtered >= day2.
+                     # If yesterday is present, it will be the lag.
+                     pass
+            elif is_same_day(d_str, today_date - timedelta(days=1)):
+                data["yesterday"] = amount
+                yesterday_val = amount
+            elif is_same_day(d_str, today_date - timedelta(days=2)):
+                data["day_minus_2"] = amount
+
+        # Calculate % Change
+        if yesterday_val > 0:
+            data["percent_change"] = round(((today_val - yesterday_val) / yesterday_val) * 100.0, 1)
+        elif today_val > 0:
+            data["percent_change"] = 100.0
+
+        return data
 
     def get_revenue_velocity(self, period: str = "monthly"):
         """

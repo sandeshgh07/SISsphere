@@ -25,9 +25,11 @@ class PaymentIntentStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
+    REJECTED = "REJECTED"
 
 class EntrySource(str, enum.Enum):
     REMOTE = "REMOTE"
