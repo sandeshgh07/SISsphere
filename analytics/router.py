@@ -12,6 +12,7 @@ from attendance import models as attendance_models
 from academics import models as academic_models
 from finance import models as finance_models
 from analytics.service import StudentHealthService
+from finance.analytics_service import FinanceAnalyticsService
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -545,3 +546,29 @@ def get_admin_overview(
             "average_payment_days": avg_velocity
         }
     }
+
+@router.get("/finance/snapshot", dependencies=[Depends(require_subscription_feature("pro_analytics"))])
+def get_finance_snapshot(
+    db: Session = Depends(get_db),
+    current_user: school_models.User = Depends(get_current_user)
+):
+    # Allow Board (Principal/Admin) and Accountant
+    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    if current_user.role not in allowed_roles:
+         raise HTTPException(status_code=403, detail="Access denied")
+
+    service = FinanceAnalyticsService(db, current_user.school_id)
+    return service.get_triple_day_snapshot()
+
+@router.get("/finance/revenue-velocity", dependencies=[Depends(require_subscription_feature("pro_analytics"))])
+def get_revenue_velocity(
+    period: str = Query("monthly", regex="^(weekly|monthly|yearly)$"),
+    db: Session = Depends(get_db),
+    current_user: school_models.User = Depends(get_current_user)
+):
+    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    if current_user.role not in allowed_roles:
+         raise HTTPException(status_code=403, detail="Access denied")
+
+    service = FinanceAnalyticsService(db, current_user.school_id)
+    return service.get_revenue_velocity(period)
