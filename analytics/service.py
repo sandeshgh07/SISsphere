@@ -9,6 +9,94 @@ from attendance import models as attendance_models
 from academics import models as academic_models
 from finance import models as finance_models
 
+class FinanceAnalyticsService:
+    def __init__(self, db: Session, school_id: str):
+        self.db = db
+        # Ensure school_id is string for Payment queries
+        self.school_id = str(school_id)
+
+    def get_three_day_rolling_revenue(self) -> Dict[str, Any]:
+        """
+        Returns total collected revenue for: Today, Yesterday, and the Day Before Yesterday.
+        Calculates Percentage Trend (up/down).
+        Distinguishes between OFFICE_CASH and REMOTE sources.
+        """
+        today = datetime.now(timezone.utc).date()
+        yesterday = today - timedelta(days=1)
+        day_before = today - timedelta(days=2)
+
+        target_dates = [today, yesterday, day_before]
+
+        # Query
+        results = self.db.query(
+            func.date(finance_models.Payment.created_at).label('payment_date'),
+            func.sum(finance_models.Payment.amount).label('total_amount'),
+            func.sum(case((finance_models.Payment.gateway == 'OFFICE_CASH', finance_models.Payment.amount), else_=0)).label('cash_amount'),
+            func.sum(case((finance_models.Payment.gateway != 'OFFICE_CASH', finance_models.Payment.amount), else_=0)).label('remote_amount')
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == 'SUCCEEDED',
+            func.date(finance_models.Payment.created_at).in_(target_dates)
+        ).group_by(
+            func.date(finance_models.Payment.created_at)
+        ).all()
+
+        # Format Data
+        data_map = {r.payment_date: r for r in results}
+
+        # Helper to safely get data
+        def get_day_data(date_obj):
+            # SQLAlchemy returns date objects or strings depending on backend/driver.
+            # SQLite `func.date` returns string 'YYYY-MM-DD'. Postgres might return date object.
+            # We'll try string lookup first.
+            date_str = date_obj.isoformat()
+
+            # Look for exact match (string) or date object match
+            row = None
+            for key, val in data_map.items():
+                if str(key) == date_str:
+                    row = val
+                    break
+
+            if not row:
+                return {"total": 0.0, "cash": 0.0, "remote": 0.0}
+
+            return {
+                "total": row.total_amount or 0.0,
+                "cash": row.cash_amount or 0.0,
+                "remote": row.remote_amount or 0.0
+            }
+
+        today_data = get_day_data(today)
+        yesterday_data = get_day_data(yesterday)
+        day_before_data = get_day_data(day_before)
+
+        # Calculate Trends
+        def calc_trend(current, previous):
+            if previous == 0:
+                return 100.0 if current > 0 else 0.0
+            return ((current - previous) / previous) * 100.0
+
+        trend_today = calc_trend(today_data["total"], yesterday_data["total"])
+        trend_yesterday = calc_trend(yesterday_data["total"], day_before_data["total"])
+
+        return {
+            "today": {
+                "date": today.isoformat(),
+                "metrics": today_data,
+                "trend_vs_yesterday": round(trend_today, 1)
+            },
+            "yesterday": {
+                "date": yesterday.isoformat(),
+                "metrics": yesterday_data,
+                "trend_vs_day_before": round(trend_yesterday, 1)
+            },
+            "day_before": {
+                "date": day_before.isoformat(),
+                "metrics": day_before_data
+            }
+        }
+
 class AnalyticsService:
     """
     Legacy Service for Reports Module compatibility.
