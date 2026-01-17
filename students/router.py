@@ -5,6 +5,7 @@ from auth.dependencies import get_db, require_roles, TenantAccess, Roles
 from academics import models as academic_models
 from schools import models as school_models
 from students import models as student_models
+from audit.listeners import set_reason
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/students", tags=["students"])
@@ -109,6 +110,7 @@ def list_students(
 @router.delete("/{student_id}")
 def delete_student(
     student_id: str,
+    reason: Optional[str] = None,
     db: Session = Depends(get_db),
     user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
     tenant: TenantAccess = Depends(TenantAccess)
@@ -120,6 +122,8 @@ def delete_student(
 
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+
+    set_reason(reason or "No justification provided")
 
     student.is_active = False
     db.commit()

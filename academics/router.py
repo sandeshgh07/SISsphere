@@ -67,6 +67,7 @@ class MarksEntryCreate(BaseModel):
     exam_term_id: str
     marks_obtained: int
     total_marks: int
+    reason: Optional[str] = None
 
 class MarksEntryResponse(BaseModel):
     id: str
@@ -540,6 +541,10 @@ def enter_marks(
     if existing_marks:
         if existing_marks.is_published:
             raise HTTPException(status_code=403, detail="Marks are locked (Published). Contact Admin for override.")
+
+        # Governance: Require justification, default to system note if missing to prevent breakage
+        reason_text = marks_data.reason or "No justification provided"
+        set_reason(reason_text)
 
         existing_marks.marks_obtained = marks_data.marks_obtained
         existing_marks.total_marks = marks_data.total_marks

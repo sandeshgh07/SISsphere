@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime, Text, Enum, Index, UniqueConstraint
+from sqlalchemy import Column, String, ForeignKey, DateTime, Text, Enum, Index, UniqueConstraint, Boolean
 from database import Base
 from datetime import datetime, timezone
 import uuid
@@ -83,6 +83,7 @@ class Complaint(Base):
     status = Column(Enum(ComplaintStatus), default=ComplaintStatus.OPEN)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         Index("idx_complaints_school_id", "school_id"),
@@ -108,4 +109,30 @@ class ComplaintMessage(Base):
 
     __table_args__ = (
         Index("idx_cm_complaint_id", "complaint_id"),
+    )
+
+class Agreement(Base):
+    __tablename__ = "agreements"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_agreements_school_id", "school_id"),
+    )
+
+class AgreementAcknowledgement(Base):
+    __tablename__ = "agreement_acknowledgements"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    agreement_id = Column(String, ForeignKey("agreements.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    signed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ip_address = Column(String, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('agreement_id', 'user_id', name='uq_agreement_user'),
+        Index("idx_agreement_acks_agreement", "agreement_id"),
     )

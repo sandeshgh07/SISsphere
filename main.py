@@ -24,6 +24,8 @@ from ai.router import router as ai_router
 from reports.router import router as reports_router
 from communication.router import router as communication_router
 from analytics.router import router as analytics_router
+from analytics.parent_router import router as parent_analytics_router
+from analytics.board_router import router as board_router
 from students.admission_router import router as admission_router
 from attendance.gate_router import router as gate_router
 
@@ -32,6 +34,7 @@ import os
 from audit.middleware import TraceIDMiddleware
 import asyncio
 from finance.service import check_overdue_installments
+from students.risk_service import check_student_risks
 
 # Create tables on startup
 # Also import all models so create_all sees them (handled inside register_listeners actually imports them too)
@@ -61,10 +64,21 @@ async def run_finance_worker():
         # Let's say every hour to be safe for a "3 days before" check being timely enough
         await asyncio.sleep(3600)
 
+async def run_risk_worker():
+    while True:
+        try:
+            db = SessionLocal()
+            check_student_risks(db)
+            db.close()
+        except Exception:
+            pass
+        await asyncio.sleep(86400) # Nightly
+
 @app.on_event("startup")
 async def startup_event():
     # Start the background worker
     asyncio.create_task(run_finance_worker())
+    asyncio.create_task(run_risk_worker())
 from fastapi.middleware.cors import CORSMiddleware
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -92,6 +106,8 @@ app.include_router(ai_router)
 app.include_router(reports_router)
 app.include_router(communication_router)
 app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(parent_analytics_router)
+app.include_router(board_router)
 app.include_router(admission_router)
 app.include_router(gate_router)
 
