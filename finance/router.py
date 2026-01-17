@@ -26,6 +26,7 @@ class FeeCreate(BaseModel):
 
 class FeeUpdate(BaseModel):
     status: Optional[str] = None # 'paid' or 'pending'
+    reason: Optional[str] = None
 
 @router.post("/fees", dependencies=[Depends(require_roles("accountant", "school_admin", "super_admin"))])
 def create_fee(
@@ -73,6 +74,11 @@ def update_fee(
         raise HTTPException(status_code=404, detail="Fee not found")
 
     if update.status:
+        if update.status != fee.status:
+            # Governance: Justification
+            reason_text = update.reason or f"Status change: {fee.status} -> {update.status}"
+            set_reason(reason_text)
+
         fee.status = update.status
         if update.status == "paid":
             fee.paid_date = datetime.now(timezone.utc)

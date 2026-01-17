@@ -9,6 +9,8 @@ import NoticeFeed from './components/NoticeFeed';
 import StudentDashboard from './pages/StudentDashboard';
 import FeesTab from './pages/FeesTab';
 import GuardScanner from './pages/GuardScanner';
+import BoardDashboard from './pages/BoardDashboard';
+import ParentDashboard from './pages/ParentDashboard';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
@@ -52,6 +54,8 @@ function App() {
             <Route path="notices" element={<NoticeFeed />} />
             <Route path="profile" element={<StudentDashboard />} />
             <Route path="fees" element={<FeesTab />} />
+            <Route path="board-analytics" element={<BoardDashboard />} />
+            <Route path="parent-dashboard" element={<ParentDashboard />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" />} />

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from auth.dependencies import get_db, require_roles, TenantAccess, get_current_user, Roles
@@ -6,6 +6,7 @@ from schools.models import User
 from students import models as student_models
 from academics import models as academic_models
 from communication import models as comm_models
+from communication.models import Agreement, AgreementAcknowledgement
 from communication.service import CommunicationService, process_high_priority_notice
 from audit.listeners import set_reason
 from pydantic import BaseModel
@@ -15,6 +16,13 @@ import enum
 router = APIRouter(prefix="/api", tags=["communication"])
 
 # --- SCHEMAS ---
+class AgreementOut(BaseModel):
+    id: str
+    title: str
+    content: str
+    created_at: datetime
+    is_active: bool
+
 class NoticeType(str, enum.Enum):
     ACADEMIC = "ACADEMIC"
     FINANCE = "FINANCE"
@@ -313,3 +321,53 @@ def update_status(
     db.commit()
 
     return {"status": "success", "new_status": complaint.status}
+
+# --- AGREEMENTS ---
+
+@router.get("/agreements", response_model=List[AgreementOut])
+def list_agreements(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    return db.query(Agreement).filter(
+        Agreement.school_id == tenant.school_id,
+        Agreement.is_active == True
+    ).all()
+
+@router.post("/agreements/{agreement_id}/acknowledge")
+def acknowledge_agreement(
+    agreement_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    # Verify agreement exists and active
+    agreement = db.query(Agreement).filter(
+        Agreement.id == agreement_id,
+        Agreement.school_id == tenant.school_id,
+        Agreement.is_active == True
+    ).first()
+
+    if not agreement:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    # Check if already acknowledged
+    existing = db.query(AgreementAcknowledgement).filter(
+        AgreementAcknowledgement.agreement_id == agreement_id,
+        AgreementAcknowledgement.user_id == user.id
+    ).first()
+
+    if existing:
+        return {"message": "Already acknowledged"}
+
+    ack = AgreementAcknowledgement(
+        agreement_id=agreement_id,
+        user_id=user.id,
+        ip_address=request.client.host
+    )
+    db.add(ack)
+    db.commit()
+
+    return {"message": "Acknowledged successfully"}
