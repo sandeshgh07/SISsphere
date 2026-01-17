@@ -25,6 +25,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
+    photo_url = Column(String, nullable=True)
     role = Column(String, default="principal")
     is_active = Column(Boolean, default=True)
     school_id = Column(Uuid, ForeignKey("schools.id"), nullable=False)

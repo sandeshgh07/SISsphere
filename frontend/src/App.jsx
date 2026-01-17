@@ -8,6 +8,7 @@ import DashboardLayout from './pages/DashboardLayout';
 import NoticeFeed from './components/NoticeFeed';
 import StudentDashboard from './pages/StudentDashboard';
 import FeesTab from './pages/FeesTab';
+import GuardScanner from './pages/GuardScanner';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
@@ -35,6 +36,12 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          <Route path="/guard/scan" element={
+            <ProtectedRoute>
+              <GuardScanner />
+            </ProtectedRoute>
+          } />
 
           <Route path="/dashboard" element={
             <ProtectedRoute>

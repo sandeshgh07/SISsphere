@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Loader2, AlertCircle, CalendarOff, TrendingUp } from 'lucide-react';
+import GatePass from '../components/GatePass';
 
 const StudentDashboard = () => {
   const [data, setData] = useState(null);
@@ -71,7 +72,10 @@ const StudentDashboard = () => {
   return (
     <div className="space-y-6 p-4 max-w-6xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">{student_info.name}</h1>
+        <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-900">{student_info.name}</h1>
+            <GatePass studentId={student_info.id} studentName={student_info.name} />
+        </div>
         {progress_level && (
             <div className="flex items-center gap-3 bg-white p-2 rounded-lg shadow-sm border">
                 <div className="text-right">
