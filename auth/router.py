@@ -15,26 +15,43 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 @router.post("/auth/login")
 async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
-    # Check if superuser login
-    is_superuser = False
-    if SUPERUSER_USERNAME and SUPERUSER_PASSWORD:
-        username_match = hmac.compare_digest(credentials.username.encode(), SUPERUSER_USERNAME.encode())
-        if username_match:
-             password_match = hmac.compare_digest(credentials.password.encode(), SUPERUSER_PASSWORD.encode())
-             if password_match:
-                 is_superuser = True
+    # 1. Env-based Superuser Check (Legacy/Backup)
+    # Only allow if NO school_id is targeted (Admin Portal context)
+    if not credentials.school_id:
+        is_superuser = False
+        if SUPERUSER_USERNAME and SUPERUSER_PASSWORD:
+            username_match = hmac.compare_digest(credentials.username.encode(), SUPERUSER_USERNAME.encode())
+            if username_match:
+                 password_match = hmac.compare_digest(credentials.password.encode(), SUPERUSER_PASSWORD.encode())
+                 if password_match:
+                     is_superuser = True
 
-    if is_superuser:
-        access_token = create_access_token(
-            data={"sub": credentials.username, "role": "superuser", "school_id": None},
-            expires_minutes=60
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
+        if is_superuser:
+            access_token = create_access_token(
+                data={"sub": credentials.username, "role": "superuser", "school_id": None},
+                expires_minutes=60
+            )
+            return {"access_token": access_token, "token_type": "bearer"}
 
-    # Regular user login
+    # 2. DB User Lookup
     user = db.query(User).filter(User.email == credentials.username).first()
     if not user or not pwd_context.verify(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # 3. Context Validation (School Portal vs Admin Portal)
+    if credentials.school_id:
+        # School Login Context: User must belong to this school
+        if str(user.school_id) != credentials.school_id:
+             raise HTTPException(status_code=403, detail="User not associated with this school.")
+    else:
+        # Main/Admin Portal Context: User must be SUPER_ADMIN
+        # Check roles
+        roles = db.query(UserRole).filter(UserRole.user_id == user.id).all()
+        role_names = [r.role_name for r in roles]
+        if user.role: role_names.append(user.role)
+
+        if "SUPER_ADMIN" not in role_names and "superuser" not in role_names:
+             raise HTTPException(status_code=403, detail="Please login via your school's dedicated portal.")
 
     # Fetch school to add subscription info
     school = db.query(School).filter(School.id == user.school_id).first()
@@ -65,6 +82,12 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         "require_password_change": user.force_password_change,
         "available_roles": available_roles
     }
+
+@router.post("/auth/admin/login")
+async def admin_login(credentials: LoginRequest, db: Session = Depends(get_db)):
+    # Force no school_id context to trigger Admin checks
+    credentials.school_id = None
+    return await login(credentials, db)
 
 @router.post("/auth/finalize-setup")
 def finalize_setup(

@@ -4,6 +4,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'sonner';
 
 import LoginPage from './pages/LoginPage';
+import FindSchool from './pages/FindSchool';
+import AdminLogin from './pages/AdminLogin';
+import SchoolLoginPage from './pages/SchoolLoginPage';
 import DashboardLayout from './pages/DashboardLayout';
 import NoticeFeed from './components/NoticeFeed';
 import StudentDashboard from './pages/StudentDashboard';
@@ -56,6 +59,9 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/find-school" element={<FindSchool />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/school/:schoolSlug/login" element={<SchoolLoginPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/account-suspended" element={<AccountSuspended />} />
           <Route path="/public/admissions/:school_uuid" element={<PublicAdmission />} />

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -26,7 +26,12 @@ const LoginPage = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      toast.error("Invalid credentials.");
+      const detail = error.response?.data?.detail;
+      if (detail) {
+          toast.error(detail);
+      } else {
+          toast.error("Invalid credentials.");
+      }
     } finally {
       setLoading(false);
     }
@@ -64,6 +69,15 @@ const LoginPage = () => {
                 {loading ? 'Signing In...' : 'Sign In'}
             </Button>
           </form>
+
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <Link to="/find-school" className="text-sm text-blue-600 hover:underline">
+                Find Your School
+            </Link>
+            <Link to="/admin/login" className="text-xs text-gray-400 hover:text-gray-600">
+                Admin Login
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>
