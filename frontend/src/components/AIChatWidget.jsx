@@ -34,7 +34,7 @@ const AIChatWidget = () => {
     setLoading(true);
 
     try {
-      const response = await api.post('/chat/', { message: input });
+      const response = await api.post('/api/chat/', { message: input });
       const aiMsg = { role: 'assistant', content: response.data.response };
       setMessages(prev => [...prev, aiMsg]);
     } catch (error) {

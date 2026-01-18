@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
+from uuid import UUID
 
 class SchoolCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -25,6 +26,19 @@ class SchoolOut(BaseModel):
     is_active: bool
     logo_url: str | None = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserOut(BaseModel):
+    id: UUID
+    email: EmailStr
+    first_name: str
+    last_name: str
+    full_name: str | None = None
+    role: str
+    is_active: bool
+    school_id: UUID
 
     class Config:
         from_attributes = True

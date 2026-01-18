@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api', // Vite proxy will handle this
+  baseURL: '/', // Vite proxy will handle /api, /auth etc.
 });
 
 api.interceptors.request.use(
@@ -18,7 +18,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Optional: Handle 401 globally by redirecting to login, but better to let AuthContext handle state
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('role');
+      // Force redirect to login
+      window.location.href = '/login';
+    }
     return Promise.reject(error);
   }
 );

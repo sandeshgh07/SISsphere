@@ -28,6 +28,7 @@ from analytics.parent_router import router as parent_analytics_router
 from analytics.board_router import router as board_router
 from students.admission_router import router as admission_router
 from attendance.gate_router import router as gate_router
+from schools.governance_router import router as governance_router
 
 from database import engine, Base, register_listeners, SessionLocal
 import os
@@ -110,6 +111,7 @@ app.include_router(parent_analytics_router)
 app.include_router(board_router)
 app.include_router(admission_router)
 app.include_router(gate_router)
+app.include_router(governance_router)
 
 @app.get("/health")
 async def health_check():

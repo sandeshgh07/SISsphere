@@ -16,7 +16,7 @@ const NoticeFeed = () => {
 
   const fetchNotices = async () => {
     try {
-      const response = await api.get('/notices/feed');
+      const response = await api.get('/api/notices/feed');
       setNotices(response.data);
     } catch (error) {
       console.error("Failed to fetch notices", error);
