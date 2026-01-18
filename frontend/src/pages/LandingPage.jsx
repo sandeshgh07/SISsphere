@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   Shield, Zap, Users, BarChart3, MessageSquare, X,
   Check, Smartphone, Globe, Lock, School
@@ -139,6 +140,7 @@ const ChatWindow = ({ onClose }) => {
 const LandingPage = () => {
   const [activeSection, setActiveSection] = useState('home');
   const [chatOpen, setChatOpen] = useState(false);
+  const navigate = useNavigate();
 
   // Intersection Observer to detect active section
   useEffect(() => {
@@ -211,7 +213,7 @@ const LandingPage = () => {
                     <button onClick={() => handleRequestDemo('hero')} className="px-8 py-4 bg-nepsis-primary text-white rounded-full font-bold hover:shadow-lg hover:scale-105 transition-all">
                         Get Started
                     </button>
-                    <button onClick={() => window.location.href='/login'} className="px-8 py-4 bg-white text-nepsis-primary border-2 border-nepsis-primary rounded-full font-bold hover:bg-gray-50 transition-all">
+                    <button onClick={() => navigate('/login')} className="px-8 py-4 bg-white text-nepsis-primary border-2 border-nepsis-primary rounded-full font-bold hover:bg-gray-50 transition-all">
                         Login
                     </button>
                 </div>

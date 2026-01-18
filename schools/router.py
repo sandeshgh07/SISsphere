@@ -4,14 +4,20 @@ from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut
 from .store import school_store
 from auth.router import get_current_superuser
 from auth.dependencies import get_current_user, require_roles, Roles
-from schools.models import User
+from schools.models import User, School
+from schools.constants import SubscriptionTier
 from database import SessionLocal
 from utils.audit_logger import log_forbidden_access
 import shutil
 import os
 import uuid
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 router = APIRouter()
+
+class ExtendSubscriptionRequest(BaseModel):
+    days: int = 30
 
 UPLOAD_DIR = "static/logos"
 
@@ -141,12 +147,9 @@ async def list_schools(
     request: Request,
     status_filter: str | None = None,
     db: Session = Depends(get_db),
-    # payload: dict = Depends(get_current_tenant_configs),
+    current_user: User = Depends(get_current_user),
 ):
-    # get_current_tenant_configs already validates school_id matching request host/token
-
     print("DEBUG API schools: endpoint hit", request.method, request.url.path)
-    print("DEBUG API schools: auth dependency passed")
 
     if status_filter is None:
         is_active = None
@@ -159,12 +162,68 @@ async def list_schools(
 
     # Filter by school_id if not superuser
     school_id_filter = None
-    if payload.get("role") != "superuser":
-        school_id_filter = payload.get("school_id")
+    if current_user.role != "superuser" and current_user.role != Roles.SUPER_ADMIN:
+        school_id_filter = current_user.school_id
 
     schools = school_store.list_schools(db, is_active=is_active, school_id=school_id_filter)
     print("DEBUG API schools: school count:", len(schools))
     return schools
+
+@router.post("/schools/{school_id}/subscription/extend")
+async def extend_subscription(
+    school_id: str,
+    request: ExtendSubscriptionRequest,
+    db: Session = Depends(get_db),
+    _payload: dict = Depends(get_current_superuser),
+):
+    school = db.query(School).filter(School.id == school_id).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    now = datetime.utcnow()
+    current_expiry = school.subscription_expiry if school.subscription_expiry else now
+
+    if current_expiry < now:
+        current_expiry = now
+
+    school.subscription_expiry = current_expiry + timedelta(days=request.days)
+    school.is_active = True
+
+    db.commit()
+    return {"message": "Subscription extended", "new_expiry": school.subscription_expiry}
+
+@router.post("/schools/{school_id}/subscription/trial")
+async def start_trial(
+    school_id: str,
+    db: Session = Depends(get_db),
+    _payload: dict = Depends(get_current_superuser),
+):
+    school = db.query(School).filter(School.id == school_id).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    school.subscription_tier = SubscriptionTier.PRO
+    school.subscription_expiry = datetime.utcnow() + timedelta(days=14)
+    school.is_active = True
+
+    db.commit()
+    return {"message": "Trial started", "tier": "PRO", "expiry": school.subscription_expiry}
+
+@router.post("/schools/{school_id}/subscription/freeze")
+async def toggle_freeze(
+    school_id: str,
+    db: Session = Depends(get_db),
+    _payload: dict = Depends(get_current_superuser),
+):
+    school = db.query(School).filter(School.id == school_id).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    school.is_active = not school.is_active
+    db.commit()
+
+    status_msg = "Active" if school.is_active else "Inactive"
+    return {"message": f"School is now {status_msg}", "is_active": school.is_active}
 
 @router.get("/api/users", response_model=list[UserOut])
 async def list_users(

@@ -15,7 +15,10 @@ class School(Base):
     logo_url = Column(String, nullable=True)
     country = Column(String, default="Nepal")
     subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.BASIC, nullable=False)
+    subscription_expiry = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    users = relationship("User", back_populates="school")
 
 class User(Base):
     __tablename__ = "users"
@@ -33,6 +36,8 @@ class User(Base):
     school_id = Column(Uuid, ForeignKey("schools.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     force_password_change = Column(Boolean, default=False)
+
+    school = relationship("School", back_populates="users")
 
     __table_args__ = (
         Index("idx_users_school_id_id", "school_id", "id"),

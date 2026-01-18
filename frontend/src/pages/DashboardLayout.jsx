@@ -13,6 +13,8 @@ import {
   BarChart3
 } from 'lucide-react';
 import AIChatWidget from '../components/AIChatWidget';
+import SubscriptionBanner from '../components/SubscriptionBanner';
+import AccountSuspended from './AccountSuspended';
 import { useState } from 'react';
 
 const DashboardLayout = () => {
@@ -21,10 +23,24 @@ const DashboardLayout = () => {
 
   if (!user) return <Navigate to="/login" />;
 
+  // Hard Lockout Check (Phase 4)
+  if (user.subscription_expiry) {
+      const expiry = new Date(user.subscription_expiry);
+      const now = new Date();
+      const diffTime = now - expiry;
+      const daysPast = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (daysPast >= 34) {
+          return <AccountSuspended />;
+      }
+  }
+
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <SubscriptionBanner />
+      <div className="flex flex-1 relative">
       {/* Mobile Sidebar Backdrop */}
       {sidebarOpen && (
         <div
@@ -123,6 +139,7 @@ const DashboardLayout = () => {
       </main>
 
       <AIChatWidget />
+      </div>
     </div>
   );
 };
