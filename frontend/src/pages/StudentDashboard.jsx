@@ -16,7 +16,7 @@ const StudentDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const response = await api.get('/analytics/student-health');
+      const response = await api.get('/api/analytics/student-health');
       setData(response.data);
     } catch (err) {
       console.error("Failed to fetch student health", err);

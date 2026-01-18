@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, Enum, Uuid
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, Enum, Uuid, Integer
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -28,6 +28,7 @@ class User(Base):
     photo_url = Column(String, nullable=True)
     role = Column(String, default="principal")
     is_active = Column(Boolean, default=True)
+    token_version = Column(Integer, default=1, nullable=False)
     school_id = Column(Uuid, ForeignKey("schools.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
