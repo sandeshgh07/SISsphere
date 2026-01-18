@@ -13,6 +13,7 @@ from passlib.context import CryptContext
 
 # Import Models
 import schools.models as school_models
+from schools.constants import SubscriptionTier
 import students.models as student_models
 import academics.models as academic_models
 import attendance.models as attendance_models
@@ -42,7 +43,7 @@ def create_demo_data():
         school = school_models.School(
             name="Nepsis International Academy",
             country="Nepal",
-            subscription_tier="PRO", # Using String as it matches Enum in DB usually, or import Enum if needed
+            subscription_tier=SubscriptionTier.PRO,
             logo_url="https://via.placeholder.com/150", # Professional placeholder
             code="NIA001",
             subscription_expiry=datetime.utcnow() + timedelta(days=365)
