@@ -39,7 +39,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KeyRound, Trash2, UserCheck, UserX, Search, Plus, ShieldAlert, Edit, Users, BookOpen } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { KeyRound, Trash2, UserCheck, UserX, Search, Plus, ShieldAlert, Edit, Users, BookOpen, Filter } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
@@ -92,6 +93,11 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
 
+  // Filters
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   // Enhanced form state for Phase 6.1
   const [form, setForm] = useState({
     full_name: "",
@@ -127,12 +133,25 @@ export default function UsersPage() {
   const canSeeActions = isAdminRole;
   const isRestrictedRole = !isAdminRole;
 
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        setDebouncedSearch(searchQuery);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const loadData = async () => {
     if (!accessToken) return;
     setLoading(true);
     try {
+      const params = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (roleFilter !== 'all') params.role = roleFilter;
+      if (debouncedSearch) params.q = debouncedSearch;
+
       const [usersRes, studentsRes, gradesRes] = await Promise.all([
-        axios.get(`${API_BASE}/api/users`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_BASE}/api/users`, { headers, params }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/students`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/grades`, { headers }).catch(() => ({ data: [] })),
       ]);
@@ -154,7 +173,7 @@ export default function UsersPage() {
       loadData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, accessToken]);
+  }, [isHydrated, accessToken, statusFilter, roleFilter, debouncedSearch]);
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -210,7 +229,7 @@ export default function UsersPage() {
     }
   };
 
-  // === RBAC RULES FOR ACTIONS ===
+  // ... (keep RBAC functions) ...
   const canToggleUser = (targetUser) => {
     if (!isAdminRole) return false;
     if (targetUser.id === user?.id) return false;
@@ -256,7 +275,7 @@ export default function UsersPage() {
     return targetRoles.includes("teacher");
   };
 
-  // === ACTION HANDLERS ===
+  // ... (keep Action Handlers) ...
   const handleToggleActive = async (targetUser) => {
     if (!canToggleUser(targetUser)) return;
     setActionLoading(true);
@@ -413,21 +432,21 @@ export default function UsersPage() {
     );
   };
 
-  // Search/filter logic
-  const filteredList = list.filter((u) => {
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      u.full_name?.toLowerCase().includes(query) ||
-      u.email?.toLowerCase().includes(query) ||
-      (ROLE_LABELS[u.role] || u.role)?.toLowerCase().includes(query)
-    );
-  });
-
   // Helper to get student name by id
   const getStudentName = (studentId) => {
     const student = students.find(s => s.id === studentId);
     return student ? `${student.first_name} ${student.last_name}` : studentId;
+  };
+
+  // Format Date Helper
+  const formatDate = (dateString) => {
+      if (!dateString) return "-";
+      try {
+          const date = new Date(dateString);
+          return date.toLocaleDateString();
+      } catch (e) {
+          return dateString;
+      }
   };
 
   // Show loading state while auth is hydrating
@@ -644,20 +663,53 @@ export default function UsersPage() {
 
         {/* Users List Card */}
         <Card className="bg-slate-900 border-slate-700">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-slate-100">
-              {isRestrictedRole ? "User Directory" : "Existing users"}
-            </CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Search by name, email, or role..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                data-testid="users-search-input"
-              />
-            </div>
+          <CardHeader>
+             <div className="flex flex-col space-y-4">
+                 <div className="flex items-center justify-between">
+                     <CardTitle className="text-slate-100">
+                      {isRestrictedRole ? "User Directory" : "Existing users"}
+                    </CardTitle>
+                    {/* Status Filters */}
+                    <Tabs value={statusFilter} onValueChange={setStatusFilter} className="hidden md:block">
+                        <TabsList className="bg-slate-950 border border-slate-700">
+                            <TabsTrigger value="all">All</TabsTrigger>
+                            <TabsTrigger value="active" className="data-[state=active]:bg-green-900/30 data-[state=active]:text-green-400">Active</TabsTrigger>
+                            <TabsTrigger value="inactive" className="data-[state=active]:bg-red-900/30 data-[state=active]:text-red-400">Inactive</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+                 </div>
+
+                 <div className="flex flex-col md:flex-row gap-3">
+                     {/* Search */}
+                     <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <Input
+                        placeholder="Search by name, email, phone..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                        data-testid="users-search-input"
+                      />
+                    </div>
+                    {/* Role Filter */}
+                    <div className="w-full md:w-48">
+                         <Select value={roleFilter} onValueChange={setRoleFilter}>
+                             <SelectTrigger className="bg-slate-950 border-slate-700 text-slate-100">
+                                 <div className="flex items-center gap-2">
+                                     <Filter className="w-4 h-4 text-slate-400" />
+                                     <SelectValue placeholder="All Roles" />
+                                 </div>
+                             </SelectTrigger>
+                             <SelectContent className="bg-slate-900 border-slate-700">
+                                 <SelectItem value="all">All Roles</SelectItem>
+                                 {ALL_ROLE_OPTIONS.map(opt => (
+                                     <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                 ))}
+                             </SelectContent>
+                         </Select>
+                    </div>
+                 </div>
+             </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -666,47 +718,48 @@ export default function UsersPage() {
               </div>
             ) : list.length === 0 ? (
               <div className="text-sm text-slate-500 py-8 text-center" data-testid="users-empty-state">
-                No users found. {canCreate && "Click 'Add User' to create the first user."}
-              </div>
-            ) : filteredList.length === 0 ? (
-              <div className="text-sm text-slate-500 py-8 text-center" data-testid="users-no-search-results">
-                No users match your search &quot;{searchQuery}&quot;
+                No users found matching your criteria.
               </div>
             ) : (
               <div className="overflow-x-auto" data-testid="users-table">
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400">
-                      <th className="py-2 text-left">Name</th>
-                      <th className="py-2 text-left">Email</th>
-                      <th className="py-2 text-left">Role(s)</th>
+                      <th className="py-2 text-left pl-4">Name</th>
+                      <th className="py-2 text-left">Primary Role</th>
                       <th className="py-2 text-left">Status</th>
+                      <th className="py-2 text-left">Contact</th>
+                      <th className="py-2 text-left">Joined</th>
                       {canSeeActions && <th className="py-2 text-left">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredList.map((u) => {
+                    {list.map((u) => {
                       const userRoles = u.roles && u.roles.length > 0 ? u.roles : [u.role];
+                      const extraRoles = userRoles.filter(r => r !== u.role); // Roles other than primary
+
                       return (
                         <tr
                           key={u.id}
-                          className={`border-b border-slate-800 ${u.is_active === false ? "opacity-60" : ""}`}
+                          className={`border-b border-slate-800 transition-colors ${u.is_active === false ? "bg-slate-900/30 opacity-60 grayscale-[0.5]" : "hover:bg-slate-800/30"}`}
                           data-testid={`users-table-row-${u.id}`}
                         >
-                          <td className="py-3 text-slate-100">{u.full_name}</td>
-                          <td className="py-3 text-slate-300">{u.email}</td>
+                          <td className="py-3 pl-4">
+                              <div className="flex flex-col">
+                                  <span className="font-medium text-slate-100">{u.full_name}</span>
+                              </div>
+                          </td>
                           <td className="py-3">
-                            <div className="flex flex-wrap gap-1">
-                              {userRoles.map((role) => (
-                                <Badge
-                                  key={role}
-                                  variant="outline"
-                                  className="bg-slate-800 text-slate-300 border-slate-600 text-xs"
-                                >
-                                  {ROLE_LABELS[role] || role}
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600">
+                                    {ROLE_LABELS[u.role] || u.role}
                                 </Badge>
-                              ))}
-                            </div>
+                                {extraRoles.length > 0 && (
+                                    <Badge variant="secondary" className="bg-slate-700 text-slate-300 text-[10px] px-1.5 h-5">
+                                        +{extraRoles.length}
+                                    </Badge>
+                                )}
+                              </div>
                           </td>
                           <td className="py-3">
                             {u.is_active === false ? (
@@ -718,6 +771,15 @@ export default function UsersPage() {
                                 Active
                               </Badge>
                             )}
+                          </td>
+                          <td className="py-3">
+                              <div className="flex flex-col text-xs text-slate-400">
+                                  <span>{u.email}</span>
+                                  {u.phone && <span>{u.phone}</span>}
+                              </div>
+                          </td>
+                          <td className="py-3 text-slate-400 text-xs">
+                              {formatDate(u.created_at)}
                           </td>
                           {canSeeActions && (
                             <td className="py-3">
@@ -736,7 +798,7 @@ export default function UsersPage() {
                                         <Edit className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent><p>Edit roles</p></TooltipContent>
+                                    <TooltipContent><p>Identity Profile</p></TooltipContent>
                                   </Tooltip>
                                 )}
 
@@ -1034,4 +1096,3 @@ export default function UsersPage() {
     </TooltipProvider>
   );
 }
-

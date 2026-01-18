@@ -2,14 +2,18 @@ import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ChevronDown, Check } from 'lucide-react';
 
-const RoleSwitcher = () => {
+const RoleSwitcher = ({ theme = 'dark' }) => {
   const { user, activeRole, availableRoles, switchRole } = useAuth();
   const [isOpen, setIsOpen] = React.useState(false);
+
+  const textColor = theme === 'dark' ? 'text-white' : 'text-slate-800';
+  const subTextColor = theme === 'dark' ? 'text-gray-400' : 'text-slate-500';
+  const hoverColor = theme === 'dark' ? 'group-hover:text-white' : 'group-hover:text-black';
 
   // If only 1 role or no user, show just static text or fallback
   if (!user || !availableRoles || availableRoles.length <= 1) {
     return (
-        <div className="overflow-hidden text-white">
+        <div className={`overflow-hidden ${textColor}`}>
             <p className="text-sm font-medium truncate">{user?.sub || 'User'}</p>
             <p className="text-xs text-gray-400 capitalize">{(activeRole || user?.role || '').replace('_', ' ')}</p>
         </div>
@@ -20,11 +24,11 @@ const RoleSwitcher = () => {
     <div className="relative">
        <button
          onClick={() => setIsOpen(!isOpen)}
-         className="flex flex-col items-start overflow-hidden text-white w-full focus:outline-none group"
+         className={`flex flex-col items-start overflow-hidden ${textColor} w-full focus:outline-none group`}
        >
             <div className="flex items-center gap-1 w-full">
                 <p className="text-sm font-medium truncate flex-1 text-left">{user.sub}</p>
-                <ChevronDown size={14} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''} group-hover:text-white`} />
+                <ChevronDown size={14} className={`${subTextColor} transition-transform ${isOpen ? 'rotate-180' : ''} ${hoverColor}`} />
             </div>
             <p className="text-xs text-nepsis-accent capitalize font-medium">{(activeRole || '').replace('_', ' ')}</p>
        </button>

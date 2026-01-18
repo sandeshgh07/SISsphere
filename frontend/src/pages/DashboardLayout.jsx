@@ -10,7 +10,8 @@ import {
   LogOut,
   Menu,
   X,
-  BarChart3
+  BarChart3,
+  Users
 } from 'lucide-react';
 import AIChatWidget from '../components/AIChatWidget';
 import SubscriptionBanner from '../components/SubscriptionBanner';
@@ -105,15 +106,15 @@ const DashboardLayout = () => {
                   <span>Board Room</span>
                 </NavLink>
             )}
+            {(user?.role === 'principal' || user?.role === 'school_admin' || user?.role === 'super_admin') && (
+                <NavLink to="/dashboard/users" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                  <Users size={20} />
+                  <span>User Management</span>
+                </NavLink>
+            )}
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <div className="flex items-center gap-3 px-4 py-3 mb-2">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-bold shrink-0">
-                    {user.sub ? user.sub[0].toUpperCase() : 'U'}
-                </div>
-                <RoleSwitcher />
-            </div>
             <Button variant="outline" className="w-full justify-start gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white" onClick={logout}>
               <LogOut size={16} />
               Sign Out
@@ -124,11 +125,24 @@ const DashboardLayout = () => {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b h-16 flex items-center px-4 md:px-8 sticky top-0 z-30">
-          <button onClick={toggleSidebar} className="mr-4 md:hidden">
-            <Menu size={24} />
-          </button>
-          <h1 className="text-lg font-semibold">Dashboard</h1>
+        <header className="bg-white border-b h-16 flex items-center justify-between px-4 md:px-8 sticky top-0 z-30">
+          <div className="flex items-center">
+            <button onClick={toggleSidebar} className="mr-4 md:hidden">
+                <Menu size={24} />
+            </button>
+            <h1 className="text-lg font-semibold">Dashboard</h1>
+          </div>
+
+          <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                 <div className="w-8 h-8 rounded-full bg-nepsis-primary text-white flex items-center justify-center font-bold text-sm">
+                    {user.sub ? user.sub[0].toUpperCase() : 'U'}
+                 </div>
+                 <div className="hidden md:block w-32">
+                    <RoleSwitcher theme="light" />
+                 </div>
+              </div>
+          </div>
         </header>
 
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">

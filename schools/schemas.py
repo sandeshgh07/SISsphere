@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 from uuid import UUID
+from typing import Optional
 from schools.constants import SubscriptionTier
 
 class SchoolCreate(BaseModel):
@@ -35,6 +36,21 @@ class SchoolOut(BaseModel):
     class Config:
         from_attributes = True
 
+class UserCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    role: str
+    phone: str | None = None
+    school_id: UUID
+    children_ids: list[UUID] = []
+
+class UserUpdateRoles(BaseModel):
+    roles: list[str]
+
+class PasswordReset(BaseModel):
+    new_password: str
+
 class UserOut(BaseModel):
     id: UUID
     email: EmailStr
@@ -44,6 +60,9 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     school_id: UUID
+    phone: str | None = None
+    created_at: datetime
+    roles: list[str] = []
 
     class Config:
         from_attributes = True

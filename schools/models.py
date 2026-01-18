@@ -29,6 +29,7 @@ class User(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     photo_url = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
     role = Column(String, default="principal")
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)
