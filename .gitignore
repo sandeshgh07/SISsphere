@@ -32,3 +32,5 @@ dev.db
 
 # Static uploads
 static/logos/
+static/admissions/*
+!static/admissions/.gitkeep

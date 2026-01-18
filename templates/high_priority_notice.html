@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #fff0f0; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; border: 1px solid #5C2438; }
+        .header { background-color: #5C2438; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; }
+        .footer { margin-top: 20px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>URGENT NOTICE</h1>
+        </div>
+        <div class="content">
+            <h2>{{ title }}</h2>
+            <p>{{ message }}</p>
+        </div>
+        <div class="footer">
+            &copy; {{ year }} {{ school_name }}
+        </div>
+    </div>
+</body>
+</html>

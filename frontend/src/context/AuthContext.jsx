@@ -34,12 +34,16 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', access_token);
       setToken(access_token);
 
+      const { require_password_change } = response.data;
+
       const payload = JSON.parse(atob(access_token.split('.')[1]));
       const role = payload.role;
       localStorage.setItem('role', role);
-      setUser({ role, ...payload });
 
-      return role;
+      const userData = { role, ...payload, require_password_change };
+      setUser(userData);
+
+      return userData;
     } catch (error) {
       console.error("Login failed", error);
       throw error;
