@@ -17,9 +17,14 @@ const LoginPage = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
-      toast.success("Welcome back!");
-      navigate('/dashboard');
+      const userData = await login(email, password);
+      if (userData.require_password_change) {
+        toast.warning("Please update your password.");
+        navigate('/reset-password');
+      } else {
+        toast.success("Welcome back!");
+        navigate('/dashboard');
+      }
     } catch (error) {
       toast.error("Invalid credentials.");
     } finally {

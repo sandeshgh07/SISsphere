@@ -9,7 +9,8 @@ import {
   CreditCard,
   LogOut,
   Menu,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import AIChatWidget from '../components/AIChatWidget';
 import { useState } from 'react';
@@ -81,6 +82,12 @@ const DashboardLayout = () => {
               <CreditCard size={20} />
               <span>Financials</span>
             </NavLink>
+            {(user.role === 'principal' || user.role === 'accountant') && (
+                <NavLink to="/dashboard/admissions" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                <FileText size={20} />
+                <span>Admissions</span>
+                </NavLink>
+            )}
           </nav>
 
           <div className="p-4 border-t border-white/10">

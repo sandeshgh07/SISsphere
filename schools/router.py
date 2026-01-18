@@ -35,7 +35,7 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/api/public/schools")
+@router.get("/public/schools")
 async def list_public_schools(db: Session = Depends(get_db)):
     schools = school_store.list_schools(db, is_active=True)
     return [
@@ -49,7 +49,6 @@ async def list_public_schools(db: Session = Depends(get_db)):
     ]
 
 @router.post("/schools", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
-@router.post("/api/schools", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
 async def create_school(
     name: str = Form(...),
     code: str = Form(...),
@@ -72,7 +71,7 @@ async def create_school(
 
     return school_store.create_school(school_data, db, logo_url=logo_url)
 
-@router.post("/api/schools/with-principal", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
+@router.post("/schools/with-principal", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
 async def create_school_with_principal(
     school_data: SchoolWithPrincipalCreate,
     db: Session = Depends(get_db),
@@ -80,7 +79,7 @@ async def create_school_with_principal(
 ):
     return school_store.create_school_with_principal(school_data, db)
 
-@router.patch("/api/schools/{school_id}/logo", response_model=SchoolOut)
+@router.patch("/schools/{school_id}/logo", response_model=SchoolOut)
 async def update_school_logo(
     school_id: str,
     logo_url: str = Form(None),
@@ -113,7 +112,7 @@ async def update_school_logo(
 
     raise HTTPException(status_code=400, detail="No logo file provided")
 
-@router.patch("/api/schools/{school_id}", response_model=SchoolOut)
+@router.patch("/schools/{school_id}", response_model=SchoolOut)
 async def update_school(
     school_id: str,
     name: str = Form(None),
@@ -137,7 +136,6 @@ async def update_school(
     return school_store.update_school(db, school_id, name=name, country=country, type=type, logo_url=logo_path)
 
 @router.get("/schools", response_model=list[SchoolOut])
-@router.get("/api/schools", response_model=list[SchoolOut])
 async def list_schools(
     request: Request,
     status_filter: str | None = None,

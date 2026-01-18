@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime, Boolean, Index, Enum, JSON
+from sqlalchemy import Column, String, ForeignKey, DateTime, Boolean, Index, Enum, JSON, Integer
 from database import Base
 from datetime import datetime, timezone
 import uuid
@@ -78,6 +78,11 @@ class StudentRiskAlert(Base):
     )
 
 class AdmissionStatus(str, enum.Enum):
+    APPLIED = "APPLIED"
+    ELIGIBLE = "ELIGIBLE"
+    INELIGIBLE = "INELIGIBLE"
+    ENROLLED = "ENROLLED"
+    # Keep old ones if needed for backward compatibility during dev, but clean slate preferred
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
@@ -89,9 +94,18 @@ class AdmissionApplication(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, nullable=True)
+
+    # New Fields
+    age = Column(Integer, nullable=True)
+    target_grade = Column(String, nullable=True)
+    completed_grade = Column(String, nullable=True)
+    previous_school = Column(String, nullable=True)
+    parent_name = Column(String, nullable=True)
+    transcript_url = Column(String, nullable=True)
+
     parent_phone = Column(String, nullable=False)
-    documents = Column(JSON, nullable=True) # URLs to Birth Cert/ID
-    status = Column(Enum(AdmissionStatus), default=AdmissionStatus.PENDING)
+    documents = Column(JSON, nullable=True) # Legacy support
+    status = Column(Enum(AdmissionStatus), default=AdmissionStatus.APPLIED)
     submission_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class GateLogType(str, enum.Enum):

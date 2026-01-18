@@ -44,8 +44,15 @@ Base.metadata.create_all(bind=engine)
 # Ensure static directories exist
 os.makedirs("static/logos", exist_ok=True)
 os.makedirs("static/receipts", exist_ok=True)
+os.makedirs("static/admissions", exist_ok=True)
+
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from core.limiter import limiter
 
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Background Task for Finance
 async def run_finance_worker():
@@ -93,23 +100,27 @@ app.add_middleware(
 app.add_middleware(TraceIDMiddleware)
 
 
-app.include_router(auth_router)
-app.include_router(schools_router)
-app.include_router(academics_router)
-app.include_router(students_router)
-app.include_router(finance_router)
-app.include_router(payment_router)
-app.include_router(admin_router)
-app.include_router(bulk_admin_router)
-app.include_router(attendance_router)
-app.include_router(ai_router)
-app.include_router(reports_router)
-app.include_router(communication_router)
+app.include_router(auth_router, prefix="/api")
+app.include_router(schools_router, prefix="/api")
+app.include_router(academics_router, prefix="/api")
+app.include_router(students_router, prefix="/api")
+app.include_router(finance_router, prefix="/api")
+app.include_router(payment_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(bulk_admin_router, prefix="/api")
+app.include_router(attendance_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
+app.include_router(reports_router, prefix="/api")
+app.include_router(communication_router, prefix="/api")
+# Analytics was already prefixed, but wait, if it was manually prefixed in the include,
+# I should just check if the router itself had a prefix.
+# The previous line: prefix="/api/analytics" suggests the router didn't have /api/analytics built in?
+# Or maybe it did? Let's assume standard behavior is to rely on include_router prefix for the "global" part.
 app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
-app.include_router(parent_analytics_router)
-app.include_router(board_router)
-app.include_router(admission_router)
-app.include_router(gate_router)
+app.include_router(parent_analytics_router, prefix="/api")
+app.include_router(board_router, prefix="/api")
+app.include_router(admission_router, prefix="/api")
+app.include_router(gate_router, prefix="/api")
 
 @app.get("/health")
 async def health_check():
