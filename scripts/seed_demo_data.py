@@ -46,7 +46,7 @@ def create_demo_data():
             subscription_tier=SubscriptionTier.PRO,
             logo_url="https://via.placeholder.com/150", # Professional placeholder
             code="NIA001",
-            subscription_expiry=datetime.now(timezone.utc) + timedelta(days=365) # Valid for 1 year
+            subscription_expiry=datetime.utcnow() + timedelta(days=365)
         )
         db.add(school)
         db.commit()

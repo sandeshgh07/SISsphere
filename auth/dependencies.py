@@ -4,6 +4,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from schools import models as school_models
+from schools.utils import calculate_subscription_status, SubscriptionStatus
 from auth.jwt import SECRET_KEY, ALGORITHM
 from typing import List, Optional
 from audit.listeners import set_actor_id
@@ -85,6 +86,14 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+
+    # Check Subscription Status
+    if user.school_id:
+        school = db.query(school_models.School).filter(school_models.School.id == user.school_id).first()
+        if school:
+            sub_status = calculate_subscription_status(school)
+            if sub_status["status"] == SubscriptionStatus.LOCKED:
+                 raise HTTPException(status_code=403, detail="Account Suspended: " + sub_status["message"])
 
     # Set context for audit logging
     set_actor_id(user.id)

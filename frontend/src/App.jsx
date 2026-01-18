@@ -16,6 +16,7 @@ import AdmissionsWorkspace from './pages/AdmissionsWorkspace';
 import ResetPassword from './pages/ResetPassword';
 import PasswordReset from './pages/PasswordReset';
 import LandingPage from './pages/LandingPage';
+import AccountSuspended from './pages/AccountSuspended';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
@@ -56,6 +57,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/account-suspended" element={<AccountSuspended />} />
           <Route path="/public/admissions/:school_uuid" element={<PublicAdmission />} />
 
           <Route path="/reset-password" element={
