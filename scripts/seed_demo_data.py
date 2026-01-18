@@ -14,6 +14,7 @@ from schools.constants import SubscriptionTier
 
 # Import Models
 import schools.models as school_models
+from schools.constants import SubscriptionTier
 import students.models as student_models
 import academics.models as academic_models
 import attendance.models as attendance_models

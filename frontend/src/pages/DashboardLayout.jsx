@@ -11,7 +11,7 @@ import {
   Menu,
   X,
   BarChart3,
-  Users
+  MessageCircle
 } from 'lucide-react';
 import AIChatWidget from '../components/AIChatWidget';
 import SubscriptionBanner from '../components/SubscriptionBanner';
@@ -22,6 +22,18 @@ import { useState } from 'react';
 const DashboardLayout = () => {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [counts, setCounts] = useState({ notices: 0, complaints: 0 });
+
+  useEffect(() => {
+    if (user) {
+        api.get('/stats/counts')
+           .then(res => setCounts({
+               notices: res.data.notices_count,
+               complaints: res.data.complaints_count
+           }))
+           .catch(err => console.error("Failed to fetch counts", err));
+    }
+  }, [user]);
 
   if (!user) return <Navigate to="/login" />;
 
@@ -88,10 +100,31 @@ const DashboardLayout = () => {
               <LayoutDashboard size={20} />
               <span>Overview</span>
             </NavLink>
-            <NavLink to="/dashboard/notices" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
-              <Bell size={20} />
+
+            <NavLink to="/dashboard/notices" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors relative ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+              <div className="relative">
+                  <Bell size={20} />
+                  {counts.notices > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-nepsis-alert text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">
+                        {counts.notices > 9 ? '9+' : counts.notices}
+                      </span>
+                  )}
+              </div>
               <span>Notices</span>
             </NavLink>
+
+            <NavLink to="/dashboard/complaints" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors relative ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                <div className="relative">
+                    <MessageCircle size={20} />
+                     {counts.complaints > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-nepsis-alert text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">
+                        {counts.complaints > 9 ? '9+' : counts.complaints}
+                      </span>
+                  )}
+                </div>
+                <span>Complaints</span>
+            </NavLink>
+
             <NavLink to="/dashboard/profile" className={({isActive}) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
               <GraduationCap size={20} />
               <span>Student Profile</span>

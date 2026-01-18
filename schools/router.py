@@ -229,53 +229,35 @@ async def toggle_freeze(
     status_msg = "Active" if school.is_active else "Inactive"
     return {"message": f"School is now {status_msg}", "is_active": school.is_active}
 
-@router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    user_in: UserCreate,
+@router.get("/stats/counts")
+async def get_dashboard_counts(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))
+    current_user: User = Depends(get_current_user),
 ):
-    if db.query(User).filter(User.email == user_in.email).first():
-        raise HTTPException(status_code=400, detail="Email already in use")
+    from communication.models import Complaint, Notice, ComplaintStatus
 
-    parts = user_in.full_name.strip().split(" ", 1)
-    first_name = parts[0]
-    last_name = parts[1] if len(parts) > 1 else ""
+    # 1. Unread/Open Complaints (Assigned to School)
+    complaints_count = db.query(Complaint).filter(
+        Complaint.school_id == str(current_user.school_id),
+        Complaint.status == ComplaintStatus.OPEN
+    ).count()
 
-    hashed_pw = pwd_context.hash(user_in.password)
+    # 2. Recent Notices (Last 7 days, or specific logic)
+    # For now, let's just count all notices for simplicity or last 7 days
+    from datetime import datetime, timedelta
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
 
-    new_user = User(
-        email=user_in.email,
-        hashed_password=hashed_pw,
-        first_name=first_name,
-        last_name=last_name,
-        role=user_in.role,
-        school_id=current_user.school_id,
-        phone=user_in.phone,
-        is_active=True,
-        must_change_password=True
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    notices_count = db.query(Notice).filter(
+        Notice.school_id == str(current_user.school_id),
+        Notice.created_at >= seven_days_ago
+    ).count()
 
-    # Return formatted user
-    # Convert to dict to avoid SQLAlchemy relationship issues
     return {
-        "id": new_user.id,
-        "email": new_user.email,
-        "first_name": new_user.first_name,
-        "last_name": new_user.last_name,
-        "full_name": user_in.full_name,
-        "role": new_user.role,
-        "is_active": new_user.is_active,
-        "school_id": new_user.school_id,
-        "phone": new_user.phone,
-        "created_at": new_user.created_at,
-        "roles": [new_user.role]
+        "complaints_count": complaints_count,
+        "notices_count": notices_count
     }
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/api/users", response_model=list[UserOut])
 async def list_users(
     status: str | None = None,
     role: str | None = None,
