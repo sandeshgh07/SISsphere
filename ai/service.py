@@ -4,6 +4,9 @@ from ai.tools import get_student_attendance, get_student_grades, get_fee_balance
 from students.models import ParentStudentLink
 import os
 import json
+import logging
+
+log = logging.getLogger(__name__)
 
 # Try to import Gemini SDK, fallback if not available
 try:
@@ -91,16 +94,22 @@ class AIService:
         # Mock Logic for POC
         lower_msg = message.lower()
         response_text = ""
+        trigger = "general"
 
         if "pricing" in lower_msg or "demo" in lower_msg:
+            trigger = "lead_capture"
             response_text = "I'd be happy to help! Would you like to fill out our quick [Admission/Inquiry Form] or leave your email?"
         elif "price" in lower_msg or "cost" in lower_msg or "subscription" in lower_msg:
+             trigger = "pricing_info"
              response_text = "We offer three tiers: BASIC (Core SIS), PLUS (Adds AI & Teachers Hub), and PRO (Board 'God View', Risk Early Warning). Contact us for a quote!"
         elif "feature" in lower_msg or "what can you do" in lower_msg:
+             trigger = "features_info"
              response_text = "Classa is an Intelligent School Management System. We offer Smart Admissions, Automated Payment Recovery, AI Assistant, and a comprehensive Board Dashboard."
         elif "trial" in lower_msg:
+             trigger = "trial_info"
              response_text = "We would love to show you a demo! Please click the 'Request a FREE trial' badge to get started."
         else:
              response_text = "Thank you for your interest in Classa! I can help you with pricing, features, or setting up a trial. What would you like to know?"
 
+        log.info(f"AI_PUBLIC_CHAT: trigger={trigger} message_len={len(message)}")
         return response_text

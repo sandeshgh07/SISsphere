@@ -34,9 +34,14 @@ def submit_admission(
     previous_school: str = Form(None),
     parent_name: str = Form(None),
     email: Optional[str] = Form(None),
+    source: Optional[str] = Form("direct"),
     transcript: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    import logging
+    log = logging.getLogger(__name__)
+    log.info(f"Admission submitted. Source: {source}")
+
     # Verify school exists
     try:
         school_uuid_obj = uuid.UUID(school_uuid)
