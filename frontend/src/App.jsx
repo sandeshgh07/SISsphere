@@ -14,6 +14,7 @@ import ParentDashboard from './pages/ParentDashboard';
 import PublicAdmission from './pages/PublicAdmission';
 import AdmissionsWorkspace from './pages/AdmissionsWorkspace';
 import ResetPassword from './pages/ResetPassword';
+import LandingPage from './pages/LandingPage';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
@@ -88,7 +89,7 @@ function App() {
             <Route path="admissions" element={<AdmissionsWorkspace />} />
           </Route>
 
-          <Route path="/" element={<Navigate to="/dashboard" />} />
+          <Route path="/" element={<LandingPage />} />
         </Routes>
         <Toaster position="top-right" />
       </BrowserRouter>

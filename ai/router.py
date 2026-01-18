@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from auth.subscription import require_subscription_feature
 from auth.dependencies import get_current_active_user, get_db
 from schools.models import User
 from ai.service import AIService
 from pydantic import BaseModel
+from core.limiter import limiter
 
 router = APIRouter(
-    prefix="/api/chat",
+    prefix="/chat",
     tags=["AI Chatbot"]
 )
 
@@ -26,4 +27,14 @@ def chat_with_ai(
 ):
     service = AIService()
     response = service.process_message(request.message, current_user, db)
+    return {"response": response}
+
+@router.post("/public")
+@limiter.limit("20/hour")
+def public_chat(
+    request: Request,
+    body: ChatRequest,
+):
+    service = AIService()
+    response = service.process_public_message(body.message)
     return {"response": response}
