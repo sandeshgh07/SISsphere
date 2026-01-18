@@ -10,6 +10,7 @@ sys.path.append(os.getcwd())
 from sqlalchemy.orm import Session
 from database import engine, Base, SessionLocal
 from passlib.context import CryptContext
+from schools.constants import SubscriptionTier
 
 # Import Models
 import schools.models as school_models
@@ -42,9 +43,10 @@ def create_demo_data():
         school = school_models.School(
             name="Nepsis International Academy",
             country="Nepal",
-            subscription_tier="PRO", # Using String as it matches Enum in DB usually, or import Enum if needed
+            subscription_tier=SubscriptionTier.PRO,
             logo_url="https://via.placeholder.com/150", # Professional placeholder
-            code="NIA001"
+            code="NIA001",
+            subscription_expiry=datetime.now(timezone.utc) + timedelta(days=365) # Valid for 1 year
         )
         db.add(school)
         db.commit()
@@ -319,6 +321,22 @@ def create_demo_data():
             grade_id=g10.id
         )
         db.add(ng2)
+
+        # Additional Notice to reach 5 total
+        notice5 = communication_models.Notice(
+            school_id=school_id,
+            title="Science Fair Registration",
+            content="Registration for the annual Science Fair is now open.",
+            priority=communication_models.NoticePriority.NORMAL,
+            author_id=str(principal.id)
+        )
+        db.add(notice5)
+        db.commit()
+        ng3 = communication_models.NoticeGrade(
+            notice_id=notice5.id,
+            grade_id=g9.id
+        )
+        db.add(ng3)
 
         # Individual Parent Notice
         # For the student linked to the parent (students[0])

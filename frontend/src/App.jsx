@@ -14,6 +14,7 @@ import ParentDashboard from './pages/ParentDashboard';
 import PublicAdmission from './pages/PublicAdmission';
 import AdmissionsWorkspace from './pages/AdmissionsWorkspace';
 import ResetPassword from './pages/ResetPassword';
+import PasswordReset from './pages/PasswordReset';
 import LandingPage from './pages/LandingPage';
 
 // Simple wrapper to force auth check

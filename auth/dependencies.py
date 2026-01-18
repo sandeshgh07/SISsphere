@@ -7,6 +7,7 @@ from schools import models as school_models
 from auth.jwt import SECRET_KEY, ALGORITHM
 from typing import List, Optional
 from audit.listeners import set_actor_id
+from datetime import datetime, timedelta
 import logging
 
 log = logging.getLogger(__name__)
@@ -93,6 +94,40 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def get_current_active_user(current_user: school_models.User = Depends(get_current_user)) -> school_models.User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+
+    # Subscription "Lockdown" Check
+    # Skip for SuperAdmin
+    if current_user.role == Roles.SUPER_ADMIN:
+        return current_user
+
+    # Access school
+    school = current_user.school
+    if not school:
+        # Should not happen if foreign key integrity is maintained
+        # But if querying manually without join, might trigger lazy load (which needs session)
+        # OR if we didn't eager load it.
+        # Since 'get_current_user' returns a User attached to a session (db dependency),
+        # accessing .school should trigger a lazy load if not detached.
+        # But let's be safe. If we can't get it, we fail securely.
+        # NOTE: SQLAlchemy async might be issue but this is synchronous.
+        raise HTTPException(status_code=403, detail="School context missing")
+
+    # 1. Is School Active? (Frozen)
+    if not school.is_active:
+         raise HTTPException(
+             status_code=403,
+             detail="Account Suspended: Please contact Classa Support to reactivate your services."
+         )
+
+    # 2. Subscription Expiry (with 3-day Grace Period)
+    if school.subscription_expiry:
+        grace_period_end = school.subscription_expiry + timedelta(days=3)
+        if datetime.utcnow() > grace_period_end:
+             raise HTTPException(
+                 status_code=403,
+                 detail="Account Suspended: Please contact Classa Support to reactivate your services."
+             )
+
     return current_user
 
 class TenantAccess:

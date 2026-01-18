@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 from uuid import UUID
+from typing import Optional
+from schools.constants import SubscriptionTier
 
 class SchoolCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -25,6 +27,8 @@ class SchoolOut(BaseModel):
     country: str | None = "Nepal"
     is_active: bool
     logo_url: str | None = None
+    subscription_tier: SubscriptionTier
+    subscription_expiry: Optional[datetime]
     created_at: datetime
 
     class Config:
