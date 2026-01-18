@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Request, status, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut
+from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut, UserCreate, UserUpdateRoles, PasswordReset
 from .store import school_store
 from auth.router import get_current_superuser
 from auth.dependencies import get_current_user, require_roles, Roles
-from schools.models import User, School
+from schools.models import User, School, UserRole
 from schools.constants import SubscriptionTier
 from database import SessionLocal
 from utils.audit_logger import log_forbidden_access
@@ -13,8 +13,12 @@ import os
 import uuid
 from datetime import datetime, timedelta
 from pydantic import BaseModel
+from sqlalchemy import or_
+from passlib.context import CryptContext
+from uuid import UUID
 
 router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class ExtendSubscriptionRequest(BaseModel):
     days: int = 30
@@ -255,12 +259,159 @@ async def get_dashboard_counts(
 
 @router.get("/api/users", response_model=list[UserOut])
 async def list_users(
+    status: str | None = None,
+    role: str | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))
 ):
     query = db.query(User).filter(User.school_id == current_user.school_id)
+
+    if status == "active":
+        query = query.filter(User.is_active == True)
+    elif status == "inactive":
+        query = query.filter(User.is_active == False)
+
+    if role:
+        query = query.outerjoin(UserRole).filter(or_(User.role == role, UserRole.role_name == role)).distinct()
+
+    if q:
+        search = f"%{q}%"
+        query = query.filter(or_(
+            User.first_name.ilike(search),
+            User.last_name.ilike(search),
+            User.email.ilike(search),
+            User.phone.ilike(search)
+        ))
+
     users = query.all()
-    # Compute full_name dynamic property or map it
+    results = []
     for u in users:
-        u.full_name = f"{u.first_name} {u.last_name}"
-    return users
+        # Collect roles
+        assigned = [r.role_name for r in u.roles]
+        if u.role not in assigned:
+            assigned.append(u.role)
+
+        results.append({
+            "id": u.id,
+            "email": u.email,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "full_name": f"{u.first_name} {u.last_name}",
+            "role": u.role,
+            "is_active": u.is_active,
+            "school_id": u.school_id,
+            "phone": u.phone,
+            "created_at": u.created_at,
+            "roles": assigned
+        })
+
+    return results
+
+@router.patch("/users/{user_id}/roles", response_model=UserOut)
+async def update_user_roles(
+    user_id: UUID,
+    roles_in: UserUpdateRoles,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+):
+    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if str(user.id) == str(current_user.id):
+         raise HTTPException(status_code=400, detail="Cannot modify your own roles")
+
+    db.query(UserRole).filter(UserRole.user_id == user.id).delete()
+
+    if not roles_in.roles:
+         raise HTTPException(status_code=400, detail="At least one role required")
+
+    primary_role = roles_in.roles[0]
+    user.role = primary_role
+
+    for r in roles_in.roles[1:]:
+        db.add(UserRole(user_id=user.id, role_name=r))
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "full_name": f"{user.first_name} {user.last_name}",
+        "role": user.role,
+        "is_active": user.is_active,
+        "school_id": user.school_id,
+        "phone": user.phone,
+        "created_at": user.created_at,
+        "roles": roles_in.roles
+    }
+
+@router.post("/users/{user_id}/enable")
+async def enable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+):
+    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_active = True
+    db.commit()
+    return {"message": "User enabled"}
+
+@router.post("/users/{user_id}/disable")
+async def disable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+):
+    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+
+    if str(user.id) == str(current_user.id):
+         raise HTTPException(status_code=400, detail="Cannot disable yourself")
+
+    user.is_active = False
+    user.token_version += 1
+    db.commit()
+    return {"message": "User disabled"}
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: UUID,
+    payload: PasswordReset,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+):
+    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+
+    user.hashed_password = pwd_context.hash(payload.new_password)
+    user.must_change_password = True
+    user.token_version += 1
+    db.commit()
+    return {"message": "Password reset successfully"}
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+):
+     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+     if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+
+     if str(user.id) == str(current_user.id):
+          raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+     db.delete(user)
+     db.commit()
+     return {"message": "User deleted"}
