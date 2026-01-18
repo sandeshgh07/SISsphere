@@ -13,13 +13,6 @@ import hmac
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post("/auth/login")
 async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     # Check if superuser login
@@ -48,7 +41,8 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
             "sub": user.email,
             "role": user.role,
             "school_id": str(user.school_id),
-            "token_version": user.token_version
+            "token_version": user.token_version,
+            "must_change_password": user.must_change_password
         },
         expires_minutes=60
     )
@@ -83,6 +77,24 @@ def finalize_setup(
     db.commit()
 
     return {"message": "Setup complete. Welcome aboard!"}
+
+
+@router.post("/auth/reset-first-password")
+async def reset_first_password(
+    reset_data: PasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not pwd_context.verify(reset_data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid old password")
+
+    current_user.hashed_password = pwd_context.hash(reset_data.new_password)
+    current_user.must_change_password = False
+    current_user.token_version += 1
+
+    db.commit()
+
+    return {"message": "Password updated successfully"}
 
 @router.post("/auth/superuser/login")
 async def superuser_login(credentials: LoginRequest):

@@ -28,6 +28,14 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+const RequireReset = ({ children }) => {
+    const { user, loading } = useAuth();
+    if (loading) return <div>Loading...</div>;
+    if (!user) return <Navigate to="/login" />;
+    if (!user.must_change_password) return <Navigate to="/dashboard" />;
+    return children;
+}
+
 const DashboardHome = () => {
     return (
         <div className="space-y-6">
@@ -52,6 +60,12 @@ function App() {
             <ProtectedRoute>
               <ResetPassword />
             </ProtectedRoute>
+          } />
+
+          <Route path="/password-reset" element={
+              <RequireReset>
+                  <PasswordReset />
+              </RequireReset>
           } />
 
           <Route path="/guard/scan" element={

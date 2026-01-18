@@ -28,6 +28,7 @@ class User(Base):
     photo_url = Column(String, nullable=True)
     role = Column(String, default="principal")
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)
     token_version = Column(Integer, default=1, nullable=False)
     school_id = Column(Uuid, ForeignKey("schools.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

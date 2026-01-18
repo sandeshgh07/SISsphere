@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <div style="font-family: sans-serif; max-width: 600px; margin: auto;">
+        <h2 style="color: #003333;">Welcome to {{ school_name }}</h2>
+        <p>Dear Parent,</p>
+        <p>Your child's admission has been approved.</p>
+        <div style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
+            <p><strong>Login ID:</strong> {{ email }}</p>
+            <p><strong>Temporary PIN:</strong> <span style="font-size: 1.2em; letter-spacing: 2px;">{{ pin }}</span></p>
+        </div>
+        <p>Please login immediately at <a href="{{ login_url }}">{{ login_url }}</a> to set your permanent password.</p>
+        <hr>
+        <footer style="font-size: 0.8em; color: #666;">
+            {{ school_name }}
+        </footer>
+    </div>
+</body>
+</html>
