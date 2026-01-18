@@ -13,7 +13,7 @@ const TriplePulse = ({ data }) => {
     return (
         <Card className="bg-white border-none shadow-sm">
             <CardContent className="p-6">
-                <div className="grid grid-cols-3 gap-4 divide-x divide-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 divide-y md:divide-y-0 md:divide-x divide-gray-200">
                     <div className="text-center px-4">
                         <p className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Today</p>
                         <p className="text-3xl font-bold text-[#003333]">{formatCurrency(data.today)}</p>
