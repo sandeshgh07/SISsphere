@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 from uuid import UUID
+from schools.constants import SubscriptionTier
 
 class SchoolCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -19,13 +20,15 @@ class SchoolWithPrincipalCreate(BaseModel):
     principal: PrincipalCreate
 
 class SchoolOut(BaseModel):
-    id: str
+    id: UUID
     name: str
     code: str
     country: str | None = "Nepal"
     is_active: bool
     logo_url: str | None = None
     created_at: datetime
+    subscription_tier: SubscriptionTier | None = None
+    subscription_expiry: datetime | None = None
 
     class Config:
         from_attributes = True

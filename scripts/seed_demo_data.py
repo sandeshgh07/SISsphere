@@ -44,7 +44,8 @@ def create_demo_data():
             country="Nepal",
             subscription_tier="PRO", # Using String as it matches Enum in DB usually, or import Enum if needed
             logo_url="https://via.placeholder.com/150", # Professional placeholder
-            code="NIA001"
+            code="NIA001",
+            subscription_expiry=datetime.utcnow() + timedelta(days=365)
         )
         db.add(school)
         db.commit()

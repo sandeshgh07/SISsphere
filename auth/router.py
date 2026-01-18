@@ -4,8 +4,8 @@ from .schemas import LoginRequest, PasswordResetRequest
 from .jwt import create_access_token, decode_access_token
 from config import SUPERUSER_USERNAME, SUPERUSER_PASSWORD
 from database import SessionLocal
-from schools.models import User
-from auth.dependencies import get_current_user
+from schools.models import User, School
+from auth.dependencies import get_current_user, get_db
 from passlib.context import CryptContext
 import os
 import hmac
@@ -36,13 +36,20 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     if not user or not pwd_context.verify(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Fetch school to add subscription info
+    school = db.query(School).filter(School.id == user.school_id).first()
+    expiry_str = school.subscription_expiry.isoformat() if school and school.subscription_expiry else None
+    tier = school.subscription_tier if school else None
+
     access_token = create_access_token(
         data={
             "sub": user.email,
             "role": user.role,
             "school_id": str(user.school_id),
             "token_version": user.token_version,
-            "must_change_password": user.must_change_password
+            "must_change_password": user.must_change_password,
+            "subscription_expiry": expiry_str,
+            "subscription_tier": tier
         },
         expires_minutes=60
     )
