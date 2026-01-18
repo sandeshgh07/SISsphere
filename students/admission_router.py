@@ -1,125 +1,223 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from database import SessionLocal
-from auth.dependencies import get_db, require_roles, TenantAccess, Roles, get_current_user
+from auth.dependencies import get_db, require_roles, TenantAccess, Roles
 from students import models as student_models
-from students import admission_schemas
 from schools import models as school_models
-from finance import models as finance_models
-from academics import models as academic_models
-from auth.subscription import require_subscription_feature
+from audit.listeners import set_actor_id, set_reason
+from core.limiter import limiter
+from core.email_service import email_service
+import magic
+import uuid
+import os
+import shutil
+import random
 from datetime import datetime
+from passlib.context import CryptContext
 
 router = APIRouter(tags=["Admission"])
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Public Endpoint
-@router.post("/api/public/admissions/{school_uuid}", response_model=admission_schemas.AdmissionResponse)
+@router.post("/public/admissions/{school_uuid}")
+@limiter.limit("5/hour")
 def submit_admission(
+    request: Request,
     school_uuid: str,
-    application: admission_schemas.AdmissionCreate,
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    parent_phone: str = Form(...),
+    age: int = Form(...),
+    target_grade: str = Form(...),
+    completed_grade: str = Form(None),
+    previous_school: str = Form(None),
+    parent_name: str = Form(None),
+    email: Optional[str] = Form(None),
+    transcript: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     # Verify school exists
-    school = db.query(school_models.School).filter(school_models.School.id == school_uuid).first()
+    try:
+        school_uuid_obj = uuid.UUID(school_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid School UUID")
+
+    school = db.query(school_models.School).filter(school_models.School.id == school_uuid_obj).first()
     if not school:
         raise HTTPException(status_code=404, detail="School not found")
 
-    # Create application
+    # File Validation
+    file_content = transcript.file.read(1024)
+    mime_type = magic.from_buffer(file_content, mime=True)
+    transcript.file.seek(0)
+
+    allowed_types = ['application/pdf', 'image/jpeg', 'image/png']
+    if mime_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, JPG, PNG allowed.")
+
+    # Save File
+    file_ext = os.path.splitext(transcript.filename)[1]
+    filename = f"{uuid.uuid4()}{file_ext}"
+    file_path = f"static/admissions/{filename}"
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(transcript.file, buffer)
+
+    # Create Application
     new_app = student_models.AdmissionApplication(
         school_id=school_uuid,
-        first_name=application.first_name,
-        last_name=application.last_name,
-        email=application.email,
-        parent_phone=application.parent_phone,
-        documents=application.documents
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        parent_phone=parent_phone,
+        age=age,
+        target_grade=target_grade,
+        completed_grade=completed_grade,
+        previous_school=previous_school,
+        parent_name=parent_name,
+        transcript_url=f"/static/admissions/{filename}",
+        status=student_models.AdmissionStatus.APPLIED
     )
     db.add(new_app)
     db.commit()
     db.refresh(new_app)
-    return new_app
+    return {"message": "Application submitted successfully", "application_id": new_app.id}
 
-# Protected Endpoints
+# Internal Endpoints
 
-@router.get("/api/admissions", response_model=List[admission_schemas.AdmissionResponse])
+@router.get("/admissions")
 def list_applications(
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
-    tenant: TenantAccess = Depends(TenantAccess),
-    _ = Depends(require_subscription_feature("SMART_ADMISSION"))
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.ACCOUNTANT)),
+    tenant: TenantAccess = Depends(TenantAccess)
 ):
-    return db.query(student_models.AdmissionApplication).filter(
-        student_models.AdmissionApplication.school_id == tenant.school_id
-    ).order_by(student_models.AdmissionApplication.submission_date.desc()).all()
+    query = db.query(student_models.AdmissionApplication).filter(
+        student_models.AdmissionApplication.school_id == str(tenant.school_id)
+    )
+    if status:
+        query = query.filter(student_models.AdmissionApplication.status == status)
 
-@router.post("/api/admissions/{application_id}/approve")
-def approve_application(
+    return query.order_by(student_models.AdmissionApplication.submission_date.desc()).all()
+
+@router.post("/admissions/{application_id}/eligibility")
+def set_eligibility(
     application_id: str,
-    approval_data: admission_schemas.AdmissionApprove,
+    status: str = Form(...), # ELIGIBLE or INELIGIBLE
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN)),
-    tenant: TenantAccess = Depends(TenantAccess),
-    _ = Depends(require_subscription_feature("SMART_ADMISSION"))
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.ACCOUNTANT)),
+    tenant: TenantAccess = Depends(TenantAccess)
 ):
-    # Fetch application
     app = db.query(student_models.AdmissionApplication).filter(
         student_models.AdmissionApplication.id == application_id,
-        student_models.AdmissionApplication.school_id == tenant.school_id
+        student_models.AdmissionApplication.school_id == str(tenant.school_id)
     ).first()
 
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    if app.status != student_models.AdmissionStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Application is already {app.status}")
+    if status not in [student_models.AdmissionStatus.ELIGIBLE, student_models.AdmissionStatus.INELIGIBLE]:
+         raise HTTPException(status_code=400, detail="Invalid status")
 
-    # 1. Create Student
-    # Generate a roll number (simple implementation: count + 1)
+    set_actor_id(str(user.id))
+    app.status = status
+    db.commit()
+
+    # Mock Email
+    print(f"Mock Email to {app.email or app.parent_phone}: Your application is {status}.")
+
+    return {"message": "Status updated", "status": app.status}
+
+@router.post("/admissions/{application_id}/enroll")
+def enroll_student(
+    application_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.ACCOUNTANT)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    app = db.query(student_models.AdmissionApplication).filter(
+        student_models.AdmissionApplication.id == application_id,
+        student_models.AdmissionApplication.school_id == str(tenant.school_id)
+    ).first()
+
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    if app.status != student_models.AdmissionStatus.ELIGIBLE:
+        raise HTTPException(status_code=400, detail="Student is not eligible for enrollment")
+
+    # Generate PIN
+    pin = "".join([str(random.randint(0, 9)) for _ in range(6)])
+    hashed_pin = pwd_context.hash(pin)
+
+    # Create User
+    # Ensure email uniqueness. If conflict, append random.
+    user_email = app.email
+    if not user_email:
+        user_email = f"{app.first_name.lower()}.{app.last_name.lower()}{random.randint(10,99)}@school.com"
+
+    existing_user = db.query(school_models.User).filter(school_models.User.email == user_email).first()
+    if existing_user:
+        user_email = f"{user_email.split('@')[0]}{random.randint(100,999)}@{user_email.split('@')[1]}"
+
+    new_user = school_models.User(
+        email=user_email,
+        hashed_password=hashed_pin,
+        first_name=app.first_name,
+        last_name=app.last_name,
+        role="student",
+        school_id=tenant.school_id,
+        force_password_change=True,
+        is_active=True
+    )
+    db.add(new_user)
+    db.flush() # get ID
+
+    # Generate Roll Number
     count = db.query(student_models.Student).filter(student_models.Student.school_id == tenant.school_id).count()
     roll_number = f"R{datetime.now().year}-{count + 1:04d}"
 
+    # Create Student
     new_student = student_models.Student(
+        id=str(new_user.id), # Link ID if possible, or use generated UUID.
+        # Ideally Student ID != User ID but they can be same or mapped.
+        # Using separate UUID for student usually.
         first_name=app.first_name,
         last_name=app.last_name,
         roll_number=roll_number,
-        email=app.email,
-        school_id=tenant.school_id,
-        grade_id=approval_data.grade_id,
-        section_id=approval_data.section_id,
-        academic_year_id=approval_data.academic_year_id
+        email=user_email,
+        school_id=str(tenant.school_id),
+        is_active=True
     )
+    # The student ID will be autogenerated if I don't set it, but wait, Student.id default is UUID.
+    # I'll let it autogenerate.
+
     db.add(new_student)
-    db.flush() # Get ID
 
-    # 2. Create Parent User (Optional? Prompt doesn't specify, but implies parent app usage later)
-    # For now, we skip creating a User account automatically to avoid password complexity,
-    # but normally we would create one or link if email exists.
-    # We will just focus on the requested: "moves data to the students table"
-
-    # 3. Generate Registration Fee Invoice
-    # Create Invoice
-    invoice = finance_models.Invoice(
-        school_id=tenant.school_id,
-        student_id=new_student.id,
-        total_amount=approval_data.registration_fee_amount,
-        status=finance_models.InvoiceStatus.ISSUED
-    )
-    db.add(invoice)
-    db.flush()
-
-    # Create Fee Item
-    fee = finance_models.Fee(
-        student_id=new_student.id,
-        amount=approval_data.registration_fee_amount,
-        description="Registration Fee",
-        school_id=tenant.school_id,
-        status="pending"
-    )
-    db.add(fee)
-
-    # 4. Update Application Status
-    app.status = student_models.AdmissionStatus.APPROVED
-
+    # Update App Status
+    set_actor_id(str(user.id))
+    app.status = student_models.AdmissionStatus.ENROLLED
     db.commit()
 
-    return {"message": "Application approved, student created, invoice generated", "student_id": new_student.id}
+    # Send Email
+    school = db.query(school_models.School).filter(school_models.School.id == tenant.school_id).first()
+    school_name = school.name if school else "Nepsis School"
+
+    # Send to parent email if available, or just log
+    target_email = app.email if app.email else "parent@example.com"
+    email_service.send_enrollment_email(
+        to_email=target_email,
+        student_name=f"{app.first_name} {app.last_name}",
+        login_url="http://localhost:5173/login", # In prod, from config
+        username=user_email,
+        pin=pin,
+        school_name=school_name
+    )
+
+    return {
+        "message": "Student enrolled successfully",
+        "student_id": new_student.id,
+        "user_email": user_email,
+        "pin": pin # Returning PIN for testing convenience, in prod sent via email
+    }

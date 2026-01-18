@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .header { background-color: #003333; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; }
+        .pin-box { background-color: #eee; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0; border: 2px dashed #003333; }
+        .btn { display: inline-block; background-color: #003333; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .footer { margin-top: 20px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Welcome to {{ school_name }}</h1>
+        </div>
+        <div class="content">
+            <p>Dear Parent/Guardian,</p>
+            <p>We are pleased to inform you that <strong>{{ student_name }}</strong> has been successfully enrolled.</p>
+
+            <p>Please use the following credentials to log in to the Student Portal for the first time. You will be required to change your password immediately.</p>
+
+            <p><strong>Username:</strong> {{ username }}</p>
+
+            <div class="pin-box">{{ pin }}</div>
+
+            <p style="text-align: center;">
+                <a href="{{ login_url }}" class="btn">Login Now</a>
+            </p>
+
+            <p>If you have any questions, please contact the school administration.</p>
+        </div>
+        <div class="footer">
+            &copy; {{ year }} {{ school_name }}<br>
+            {{ school_address }}
+        </div>
+    </div>
+</body>
+</html>

@@ -31,6 +31,7 @@ class User(Base):
     token_version = Column(Integer, default=1, nullable=False)
     school_id = Column(Uuid, ForeignKey("schools.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    force_password_change = Column(Boolean, default=False)
 
     __table_args__ = (
         Index("idx_users_school_id_id", "school_id", "id"),

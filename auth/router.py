@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Header, Depends
 from sqlalchemy.orm import Session
-from .schemas import LoginRequest
+from .schemas import LoginRequest, PasswordResetRequest
 from .jwt import create_access_token, decode_access_token
 from config import SUPERUSER_USERNAME, SUPERUSER_PASSWORD
 from database import SessionLocal
 from schools.models import User
+from auth.dependencies import get_current_user
 from passlib.context import CryptContext
 import os
 import hmac
@@ -51,7 +52,37 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         },
         expires_minutes=60
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "require_password_change": user.force_password_change
+    }
+
+@router.post("/auth/finalize-setup")
+def finalize_setup(
+    request: PasswordResetRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.force_password_change:
+        raise HTTPException(status_code=400, detail="Setup already finalized.")
+
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+
+    if len(request.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+
+    if not pwd_context.verify(request.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid current password/PIN.")
+
+    # Explicitly fetch and update to ensure attachment
+    user_to_update = db.query(User).filter(User.id == current_user.id).first()
+    user_to_update.hashed_password = pwd_context.hash(request.new_password)
+    user_to_update.force_password_change = False
+    db.commit()
+
+    return {"message": "Setup complete. Welcome aboard!"}
 
 @router.post("/auth/superuser/login")
 async def superuser_login(credentials: LoginRequest):
@@ -99,4 +130,3 @@ async def auth_me(payload: dict = Depends(get_current_superuser)):
     }
 
 print("🔥 AUTH ROUTER LOADED FROM:", __file__)
-

@@ -11,12 +11,20 @@ import FeesTab from './pages/FeesTab';
 import GuardScanner from './pages/GuardScanner';
 import BoardDashboard from './pages/BoardDashboard';
 import ParentDashboard from './pages/ParentDashboard';
+import PublicAdmission from './pages/PublicAdmission';
+import AdmissionsWorkspace from './pages/AdmissionsWorkspace';
+import ResetPassword from './pages/ResetPassword';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div>Loading...</div>;
   if (!user) return <Navigate to="/login" />;
+
+  if (user.require_password_change && window.location.pathname !== '/reset-password') {
+      return <Navigate to="/reset-password" />;
+  }
+
   return children;
 };
 
@@ -38,6 +46,13 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/public/admissions/:school_uuid" element={<PublicAdmission />} />
+
+          <Route path="/reset-password" element={
+            <ProtectedRoute>
+              <ResetPassword />
+            </ProtectedRoute>
+          } />
 
           <Route path="/guard/scan" element={
             <ProtectedRoute>
@@ -56,6 +71,7 @@ function App() {
             <Route path="fees" element={<FeesTab />} />
             <Route path="board-analytics" element={<BoardDashboard />} />
             <Route path="parent-dashboard" element={<ParentDashboard />} />
+            <Route path="admissions" element={<AdmissionsWorkspace />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" />} />
