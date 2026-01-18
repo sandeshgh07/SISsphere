@@ -4,7 +4,7 @@ from .schemas import LoginRequest, PasswordResetRequest
 from .jwt import create_access_token, decode_access_token
 from config import SUPERUSER_USERNAME, SUPERUSER_PASSWORD
 from database import SessionLocal
-from schools.models import User, School
+from schools.models import User, School, UserRole
 from auth.dependencies import get_current_user, get_db
 from passlib.context import CryptContext
 import os
@@ -42,6 +42,12 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     tier = school.subscription_tier if school else None
     country = school.country if school else "Nepal"
 
+    # Fetch roles
+    roles = db.query(UserRole).filter(UserRole.user_id == user.id).all()
+    available_roles = [r.role_name for r in roles]
+    if user.role not in available_roles:
+        available_roles.append(user.role)
+
     access_token = create_access_token(
         data={
             "sub": user.email,
@@ -58,7 +64,8 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "require_password_change": user.force_password_change
+        "require_password_change": user.force_password_change,
+        "available_roles": available_roles
     }
 
 @router.post("/auth/finalize-setup")

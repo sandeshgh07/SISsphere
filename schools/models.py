@@ -38,8 +38,23 @@ class User(Base):
     force_password_change = Column(Boolean, default=False)
 
     school = relationship("School", back_populates="users")
+    roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_users_school_id_id", "school_id", "id"),
         Index("idx_users_school_id_created_at", "school_id", "created_at"),
+    )
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid, ForeignKey("users.id"), nullable=False)
+    role_name = Column(String, nullable=False)
+
+    user = relationship("User", back_populates="roles")
+
+    __table_args__ = (
+        Index("idx_user_roles_user_id", "user_id"),
     )

@@ -26,6 +26,8 @@ class SchoolOut(BaseModel):
     country: str | None = "Nepal"
     is_active: bool
     logo_url: str | None = None
+    subscription_tier: SubscriptionTier
+    subscription_expiry: Optional[datetime]
     created_at: datetime
     subscription_tier: SubscriptionTier | None = None
     subscription_expiry: datetime | None = None

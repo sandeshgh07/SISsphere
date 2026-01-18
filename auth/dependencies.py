@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from schools.utils import calculate_subscription_status, SubscriptionStatus
 from auth.jwt import SECRET_KEY, ALGORITHM
 from typing import List, Optional
 from audit.listeners import set_actor_id
+from datetime import datetime, timedelta
 import logging
 
 log = logging.getLogger(__name__)
@@ -32,7 +33,11 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> school_models.User:
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    x_active_role: Optional[str] = Header(None)
+) -> school_models.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -66,6 +71,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             is_active=True
         )
         set_actor_id("superuser")
+        superuser.current_role = Roles.SUPER_ADMIN
         return superuser
 
     user = db.query(school_models.User).filter(school_models.User.email == username).first()
@@ -94,6 +100,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             if sub_status["status"] == SubscriptionStatus.LOCKED:
                  raise HTTPException(status_code=403, detail="Account Suspended: " + sub_status["message"])
 
+    # Role Context Verification
+    if x_active_role:
+        has_role = db.query(school_models.UserRole).filter(
+            school_models.UserRole.user_id == user.id,
+            school_models.UserRole.role_name == x_active_role
+        ).first()
+
+        # Fallback to legacy primary role check if not in UserRole table yet
+        if not has_role and user.role != x_active_role:
+             raise HTTPException(status_code=403, detail=f"User does not have role {x_active_role}")
+
+        user.current_role = x_active_role
+    else:
+        user.current_role = user.role
+
     # Set context for audit logging
     set_actor_id(user.id)
 
@@ -102,6 +123,40 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def get_current_active_user(current_user: school_models.User = Depends(get_current_user)) -> school_models.User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+
+    # Subscription "Lockdown" Check
+    # Skip for SuperAdmin
+    if current_user.role == Roles.SUPER_ADMIN:
+        return current_user
+
+    # Access school
+    school = current_user.school
+    if not school:
+        # Should not happen if foreign key integrity is maintained
+        # But if querying manually without join, might trigger lazy load (which needs session)
+        # OR if we didn't eager load it.
+        # Since 'get_current_user' returns a User attached to a session (db dependency),
+        # accessing .school should trigger a lazy load if not detached.
+        # But let's be safe. If we can't get it, we fail securely.
+        # NOTE: SQLAlchemy async might be issue but this is synchronous.
+        raise HTTPException(status_code=403, detail="School context missing")
+
+    # 1. Is School Active? (Frozen)
+    if not school.is_active:
+         raise HTTPException(
+             status_code=403,
+             detail="Account Suspended: Please contact Classa Support to reactivate your services."
+         )
+
+    # 2. Subscription Expiry (with 3-day Grace Period)
+    if school.subscription_expiry:
+        grace_period_end = school.subscription_expiry + timedelta(days=3)
+        if datetime.utcnow() > grace_period_end:
+             raise HTTPException(
+                 status_code=403,
+                 detail="Account Suspended: Please contact Classa Support to reactivate your services."
+             )
+
     return current_user
 
 class TenantAccess:
@@ -115,10 +170,11 @@ class TenantAccess:
 
 def require_roles(*allowed_roles: str):
     def role_checker(user: school_models.User = Depends(get_current_active_user)):
-        if user.role not in allowed_roles and user.role != Roles.SUPER_ADMIN:
+        current_role = getattr(user, "current_role", user.role)
+        if current_role not in allowed_roles and current_role != Roles.SUPER_ADMIN:
              raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role {user.role} is not authorized. Required: {allowed_roles}"
+                detail=f"Role {current_role} is not authorized. Required: {allowed_roles}"
             )
         return user
     return role_checker
