@@ -7,7 +7,7 @@ from ai.service import AIService
 from pydantic import BaseModel
 
 router = APIRouter(
-    prefix="/api/chat",
+    prefix="/chat",
     tags=["AI Chatbot"]
 )
 
@@ -26,4 +26,12 @@ def chat_with_ai(
 ):
     service = AIService()
     response = service.process_message(request.message, current_user, db)
+    return {"response": response}
+
+@router.post("/public")
+def public_chat(
+    request: ChatRequest,
+):
+    service = AIService()
+    response = service.process_public_message(request.message)
     return {"response": response}
