@@ -15,6 +15,7 @@ import {
 import AIChatWidget from '../components/AIChatWidget';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import AccountSuspended from './AccountSuspended';
+import RoleSwitcher from '../components/RoleSwitcher';
 import { useState } from 'react';
 
 const DashboardLayout = () => {
@@ -108,13 +109,10 @@ const DashboardLayout = () => {
 
           <div className="p-4 border-t border-white/10">
             <div className="flex items-center gap-3 px-4 py-3 mb-2">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-bold">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-bold shrink-0">
                     {user.sub ? user.sub[0].toUpperCase() : 'U'}
                 </div>
-                <div className="overflow-hidden text-white">
-                    <p className="text-sm font-medium truncate">{user.sub}</p>
-                    <p className="text-xs text-gray-400 capitalize">{user.role}</p>
-                </div>
+                <RoleSwitcher />
             </div>
             <Button variant="outline" className="w-full justify-start gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white" onClick={logout}>
               <LogOut size={16} />

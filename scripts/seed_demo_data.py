@@ -66,6 +66,12 @@ def create_demo_data():
             must_change_password=False
         )
         db.add(principal)
+        db.commit() # Commit to get ID for UserRole
+        db.refresh(principal)
+
+        # Add UserRole for Principal
+        principal_role = school_models.UserRole(user_id=principal.id, role_name="principal")
+        db.add(principal_role)
 
         parent_pass = pwd_context.hash("nepsis123")
         parent_user = school_models.User(
@@ -80,7 +86,34 @@ def create_demo_data():
         db.add(parent_user)
         db.commit()
         db.refresh(parent_user)
+
+        # Add UserRole for Parent
+        parent_role = school_models.UserRole(user_id=parent_user.id, role_name="guardian")
+        db.add(parent_role)
+
         parent_user_id = str(parent_user.id)
+
+        # Create Hybrid User (Accountant + Guardian)
+        print("🎭 Creating Hybrid User (Accountant + Guardian)...")
+        hybrid_pass = pwd_context.hash("nepsis123")
+        hybrid_user = school_models.User(
+            email="hybrid@nepsis.com",
+            hashed_password=hybrid_pass,
+            first_name="Hybrid",
+            last_name="User",
+            role="accountant", # Default role
+            school_id=school_uuid,
+            must_change_password=False
+        )
+        db.add(hybrid_user)
+        db.commit()
+        db.refresh(hybrid_user)
+
+        # Add Roles
+        role1 = school_models.UserRole(user_id=hybrid_user.id, role_name="accountant")
+        role2 = school_models.UserRole(user_id=hybrid_user.id, role_name="guardian")
+        db.add(role1)
+        db.add(role2)
 
         # 3. Academics
         print("📚 Creating Academics...")
