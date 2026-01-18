@@ -9,7 +9,8 @@ _revenue_cache = {}
 class FinanceAnalyticsService:
     def __init__(self, db: Session, school_id: str):
         self.db = db
-        self.school_id = school_id
+        # Ensure school_id is string for compatibility with finance models
+        self.school_id = str(school_id)
         # Use UTC date
         self.today = datetime.now(timezone.utc).date()
 
@@ -135,3 +136,73 @@ class FinanceAnalyticsService:
         _revenue_cache[cache_key] = (datetime.now(), data)
 
         return data
+
+    def get_financial_velocity(self):
+        """
+        Returns a detailed 3-day velocity snapshot with breakdown by Cash vs Remote.
+        Structure matches requirements for the Velocity Widget.
+        """
+        # Fetch all succeeded payments for the school and filter in Python
+        # This bypasses SQL dialect inconsistencies with date filtering in the current environment
+        payments = self.db.query(finance_models.Payment).filter(
+            finance_models.Payment.school_id == self.school_id
+        ).all()
+
+        today_date = self.today
+        yesterday_date = today_date - timedelta(days=1)
+        day_before_date = today_date - timedelta(days=2)
+
+        # Helper to get metrics for a specific date
+        def get_metrics(target_date):
+            total = 0.0
+            cash = 0.0
+
+            for p in payments:
+                # Check status robustly (Enum or String)
+                if str(p.status) != "SUCCEEDED":
+                    continue
+
+                if p.created_at:
+                    # Handle if created_at is a string (SQLite edge case in some drivers)
+                    if isinstance(p.created_at, str):
+                        # Try to parse or just slice
+                        try:
+                            # Assume ISO format 'YYYY-MM-DD HH:MM:SS.ssssss'
+                            p_date_str = p.created_at.split(' ')[0]
+                            p_date = datetime.strptime(p_date_str, '%Y-%m-%d').date()
+                        except:
+                            continue
+                    else:
+                        p_date = p.created_at.date()
+
+                    if p_date == target_date:
+                        val = float(p.amount)
+                        total += val
+                        if p.gateway == "OFFICE_CASH":
+                            cash += val
+
+            remote = total - cash
+            return {"total": total, "cash": cash, "remote": remote}
+
+        today_metrics = get_metrics(today_date)
+        yesterday_metrics = get_metrics(yesterday_date)
+        day_before_metrics = get_metrics(day_before_date)
+
+        def calc_trend(current, previous):
+            if previous == 0:
+                return 100.0 if current > 0 else 0.0
+            return round(((current - previous) / previous) * 100, 1)
+
+        return {
+            "today": {
+                "metrics": today_metrics,
+                "trend_vs_yesterday": calc_trend(today_metrics["total"], yesterday_metrics["total"])
+            },
+            "yesterday": {
+                "metrics": yesterday_metrics,
+                "trend_vs_day_before": calc_trend(yesterday_metrics["total"], day_before_metrics["total"])
+            },
+            "day_before": {
+                "metrics": day_before_metrics
+            }
+        }

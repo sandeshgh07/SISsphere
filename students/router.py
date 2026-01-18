@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from auth.dependencies import get_db, require_roles, TenantAccess, Roles
@@ -6,9 +6,23 @@ from academics import models as academic_models
 from schools import models as school_models
 from students import models as student_models
 from audit.listeners import set_reason
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import datetime
 
 router = APIRouter(prefix="/api/students", tags=["students"])
+
+class SecurityBlockRequest(BaseModel):
+    reason: str = Field(..., min_length=10, description="Justification for the block (min 10 chars)")
+    parent_id: Optional[str] = None
+
+class SecurityBlockResponse(BaseModel):
+    id: str
+    reason: str
+    parent_id: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class StudentResponse(BaseModel):
     id: str
@@ -106,6 +120,109 @@ def list_students(
         ))
 
     return results
+
+@router.patch("/{student_id}/parents/{parent_id}/authorization", dependencies=[Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))])
+def toggle_parent_authorization(
+    student_id: str,
+    parent_id: str,
+    authorized: bool = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    link = db.query(student_models.ParentStudentLink).filter(
+        student_models.ParentStudentLink.student_id == student_id,
+        student_models.ParentStudentLink.parent_id == parent_id,
+        student_models.ParentStudentLink.school_id == str(tenant.school_id)
+    ).first()
+
+    if not link:
+        raise HTTPException(status_code=404, detail="Parent-Student link not found")
+
+    link.is_authorized_pickup = authorized
+    db.commit()
+    return {"message": "Authorization updated", "is_authorized_pickup": link.is_authorized_pickup}
+
+@router.get("/{student_id}/security-blocks", response_model=List[SecurityBlockResponse], dependencies=[Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))])
+def get_security_blocks(
+    student_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    blocks = db.query(student_models.SecurityBlock).filter(
+        student_models.SecurityBlock.student_id == student_id,
+        student_models.SecurityBlock.school_id == str(tenant.school_id),
+        student_models.SecurityBlock.is_active == True
+    ).all()
+    return blocks
+
+@router.post("/{student_id}/security-blocks", dependencies=[Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))])
+def add_security_block(
+    student_id: str,
+    block_request: SecurityBlockRequest,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    # Verify student exists
+    student = db.query(student_models.Student).filter(
+        student_models.Student.id == student_id,
+        student_models.Student.school_id == str(tenant.school_id)
+    ).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    new_block = student_models.SecurityBlock(
+        school_id=str(tenant.school_id),
+        student_id=student_id,
+        parent_id=block_request.parent_id, # Optional specific parent block
+        reason=block_request.reason,
+        is_active=True
+    )
+    db.add(new_block)
+
+    # Also update student pickup_blocked flag if it's a general block (no parent_id)
+    if not block_request.parent_id:
+        student.pickup_blocked = True
+        student.pickup_block_reason = block_request.reason
+
+    db.commit()
+    return {"message": "Security block added", "id": new_block.id}
+
+@router.delete("/{student_id}/security-blocks/{block_id}", dependencies=[Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))])
+def remove_security_block(
+    student_id: str,
+    block_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    block = db.query(student_models.SecurityBlock).filter(
+        student_models.SecurityBlock.id == block_id,
+        student_models.SecurityBlock.student_id == student_id,
+        student_models.SecurityBlock.school_id == str(tenant.school_id)
+    ).first()
+
+    if not block:
+        raise HTTPException(status_code=404, detail="Security block not found")
+
+    block.is_active = False
+
+    # If this was the only active block, unblock the student flag
+    # Check if any other active blocks exist for this student (generic ones)
+    remaining_blocks = db.query(student_models.SecurityBlock).filter(
+        student_models.SecurityBlock.student_id == student_id,
+        student_models.SecurityBlock.school_id == tenant.school_id,
+        student_models.SecurityBlock.is_active == True,
+        student_models.SecurityBlock.parent_id == None,
+        student_models.SecurityBlock.id != block_id
+    ).count()
+
+    if remaining_blocks == 0 and not block.parent_id:
+        student = db.query(student_models.Student).filter(student_models.Student.id == student_id).first()
+        if student:
+            student.pickup_blocked = False
+            student.pickup_block_reason = None
+
+    db.commit()
+    return {"message": "Security block removed"}
 
 @router.delete("/{student_id}")
 def delete_student(
