@@ -137,72 +137,74 @@ class FinanceAnalyticsService:
 
         return data
 
-    def get_financial_velocity(self):
+    def get_daily_revenue_30_days(self):
         """
-        Returns a detailed 3-day velocity snapshot with breakdown by Cash vs Remote.
-        Structure matches requirements for the Velocity Widget.
+        Returns daily totals for the last 30 days.
         """
-        # Fetch all succeeded payments for the school and filter in Python
-        # This bypasses SQL dialect inconsistencies with date filtering in the current environment
-        payments = self.db.query(finance_models.Payment).filter(
-            finance_models.Payment.school_id == self.school_id
+        end_date = self.today
+        start_date = end_date - timedelta(days=29) # 30 days inclusive
+
+        results = self.db.query(
+            func.date(finance_models.Payment.created_at).label("date"),
+            func.sum(finance_models.Payment.amount).label("amount")
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED,
+            finance_models.Payment.created_at >= start_date
+        ).group_by(
+            func.date(finance_models.Payment.created_at)
         ).all()
 
-        today_date = self.today
-        yesterday_date = today_date - timedelta(days=1)
-        day_before_date = today_date - timedelta(days=2)
+        # Fill missing dates with 0
+        data_map = {r.date: r.amount for r in results}
+        final_data = []
 
-        # Helper to get metrics for a specific date
-        def get_metrics(target_date):
-            total = 0.0
-            cash = 0.0
+        cumulative = 0.0
+        # Target: Let's assume a simple target of 1000 per day for demo or average of active days + 10%
+        # Or better: derive from invoices due this month?
+        # For this component, we just provide the data. The target logic can be in the router or here.
+        # Let's calculate a cumulative target line that assumes a steady growth to a monthly goal.
+        # Monthly goal = Sum of invoices issued this month? Or just an arbitrary goal for visualization?
+        # Let's return the daily data, router can construct target.
 
-            for p in payments:
-                # Check status robustly (Enum or String)
-                if str(p.status) != "SUCCEEDED":
-                    continue
+        current = start_date
+        while current <= end_date:
+            d_str = str(current)
+            amount = data_map.get(d_str, 0.0) or 0.0
+            final_data.append({
+                "date": d_str,
+                "amount": amount
+            })
+            current += timedelta(days=1)
 
-                if p.created_at:
-                    # Handle if created_at is a string (SQLite edge case in some drivers)
-                    if isinstance(p.created_at, str):
-                        # Try to parse or just slice
-                        try:
-                            # Assume ISO format 'YYYY-MM-DD HH:MM:SS.ssssss'
-                            p_date_str = p.created_at.split(' ')[0]
-                            p_date = datetime.strptime(p_date_str, '%Y-%m-%d').date()
-                        except:
-                            continue
-                    else:
-                        p_date = p.created_at.date()
+        return final_data
 
-                    if p_date == target_date:
-                        val = float(p.amount)
-                        total += val
-                        if p.gateway == "OFFICE_CASH":
-                            cash += val
+    def get_payment_source_breakdown(self):
+        """
+        Returns split between OFFICE_CASH and REMOTE.
+        """
+        results = self.db.query(
+            finance_models.Payment.entry_source,
+            func.sum(finance_models.Payment.amount).label("total")
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
+        ).group_by(
+            finance_models.Payment.entry_source
+        ).all()
 
-            remote = total - cash
-            return {"total": total, "cash": cash, "remote": remote}
-
-        today_metrics = get_metrics(today_date)
-        yesterday_metrics = get_metrics(yesterday_date)
-        day_before_metrics = get_metrics(day_before_date)
-
-        def calc_trend(current, previous):
-            if previous == 0:
-                return 100.0 if current > 0 else 0.0
-            return round(((current - previous) / previous) * 100, 1)
-
-        return {
-            "today": {
-                "metrics": today_metrics,
-                "trend_vs_yesterday": calc_trend(today_metrics["total"], yesterday_metrics["total"])
-            },
-            "yesterday": {
-                "metrics": yesterday_metrics,
-                "trend_vs_day_before": calc_trend(yesterday_metrics["total"], day_before_metrics["total"])
-            },
-            "day_before": {
-                "metrics": day_before_metrics
-            }
+        # Map to simpler dict
+        # entry_source is Enum: REMOTE, OFFICE_CASH, AUTOMATED
+        data = {
+            "OFFICE_CASH": 0.0,
+            "REMOTE": 0.0
         }
+
+        for r in results:
+            source = r.entry_source
+            if source == finance_models.EntrySource.OFFICE_CASH:
+                data["OFFICE_CASH"] += (r.total or 0.0)
+            elif source in [finance_models.EntrySource.REMOTE, finance_models.EntrySource.AUTOMATED]:
+                data["REMOTE"] += (r.total or 0.0)
+
+        return data
