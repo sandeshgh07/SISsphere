@@ -119,9 +119,8 @@ def create_notice(
     notice = comm_models.Notice(
         title=notice_in.title,
         content=notice_in.content,
-        type=notice_in.type,
-        school_id=user.school_id,
-        author_id=user.id,
+        school_id=str(user.school_id),
+        author_id=str(user.id),
         priority=notice_in.priority
     )
     db.add(notice)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from auth.dependencies import get_db, require_roles, TenantAccess, Roles, get_current_user
@@ -13,10 +13,13 @@ from datetime import datetime, timezone
 import shutil
 import os
 import re
+from communication.email_service import NotificationService
+from audit.listeners import set_reason
 
 # Router config
 # Using a specific prefix for finance admin/ops
 router = APIRouter(prefix="/api/finance", tags=["Finance"])
+email_service = NotificationService()
 
 class FeeCreate(BaseModel):
     student_id: str
@@ -37,7 +40,7 @@ def create_fee(
     # Verify student belongs to the same school
     student = db.query(student_models.Student).filter(
         student_models.Student.id == fee.student_id,
-        student_models.Student.school_id == current_user.school_id
+        student_models.Student.school_id == str(current_user.school_id)
     ).first()
 
     if not student:
@@ -62,12 +65,13 @@ def create_fee(
 def update_fee(
     fee_id: str,
     update: FeeUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: school_models.User = Depends(get_current_user)
 ):
     fee = db.query(finance_models.Fee).filter(
         finance_models.Fee.id == fee_id,
-        finance_models.Fee.school_id == current_user.school_id
+        finance_models.Fee.school_id == str(current_user.school_id)
     ).first()
 
     if not fee:
@@ -82,6 +86,43 @@ def update_fee(
         fee.status = update.status
         if update.status == "paid":
             fee.paid_date = datetime.now(timezone.utc)
+
+            # Send Receipt
+            student = db.query(student_models.Student).filter(student_models.Student.id == fee.student_id).first()
+            if student:
+                 # Get Parents
+                 links = db.query(student_models.ParentStudentLink).filter(
+                     student_models.ParentStudentLink.student_id == student.id,
+                     student_models.ParentStudentLink.school_id == str(current_user.school_id)
+                 ).all()
+
+                 if links:
+                     import uuid
+                     # Parent IDs in Link are Strings (from my fix in admission_router), User IDs are UUIDs.
+                     # But User.id is UUID type in model.
+                     # So we need to cast Link.parent_id (str) to UUID for lookup?
+                     # No, User.id in DB is UUID. Querying with string might fail depending on driver.
+                     # Let's try casting to UUID.
+                     try:
+                         parent_ids = [uuid.UUID(l.parent_id) for l in links]
+                     except ValueError:
+                         parent_ids = []
+                     parents = db.query(school_models.User).filter(school_models.User.id.in_(parent_ids)).all()
+
+                     # Get School Name
+                     school = db.query(school_models.School).filter(school_models.School.id == current_user.school_id).first()
+                     school_name = school.name if school else "Our School"
+
+                     for parent in parents:
+                         background_tasks.add_task(
+                             email_service.send_payment_receipt,
+                             to_email=parent.email,
+                             fee_id=str(fee.id),
+                             amount=fee.amount,
+                             date=fee.paid_date.strftime("%Y-%m-%d"),
+                             school_name=school_name
+                         )
+
         elif update.status == "pending":
             fee.paid_date = None
 
@@ -177,7 +218,7 @@ async def upload_receipt(
     # Verify fee exists and belongs to school
     fee = db.query(finance_models.Fee).filter(
         finance_models.Fee.id == fee_id,
-        finance_models.Fee.school_id == current_user.school_id
+        finance_models.Fee.school_id == str(current_user.school_id)
     ).first()
 
     if not fee:

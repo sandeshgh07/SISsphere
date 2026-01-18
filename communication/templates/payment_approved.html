@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee;">
+        <div style="background-color: #003333; color: white; padding: 15px;">
+            <h2 style="margin: 0;">Payment Receipt</h2>
+        </div>
+        <div style="padding: 20px;">
+            <p>Dear Parent,</p>
+            <p>We have received your payment.</p>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fee ID:</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ fee_id }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Amount:</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ amount }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Date:</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ date }}</td>
+                </tr>
+            </table>
+            <p style="margin-top: 20px;">Thank you for your timely payment.</p>
+        </div>
+        <div style="background-color: #f9f9f9; padding: 10px; text-align: center; font-size: 0.8em;">
+            {{ school_name }}
+        </div>
+    </div>
+</body>
+</html>

@@ -10,6 +10,9 @@ from academics.models import TeacherAssignment
 from auth.dependencies import Roles
 from database import SessionLocal
 import datetime
+from communication.email_service import NotificationService
+
+email_service = NotificationService()
 
 def process_high_priority_notice(notice_id: str):
     """
@@ -52,16 +55,37 @@ def process_high_priority_notice(notice_id: str):
         if not deliveries:
             return
 
-        school = db.query(School).get(notice.school_id)
+        import uuid
+        try:
+            school = db.query(School).get(uuid.UUID(notice.school_id))
+        except ValueError:
+            school = None
         school_name = school.name if school else "School"
 
-        user_ids = [d.user_id for d in deliveries]
+        user_ids = []
+        for d in deliveries:
+            try:
+                user_ids.append(uuid.UUID(d.user_id))
+            except ValueError:
+                pass
+
         users = db.query(User).filter(User.id.in_(user_ids)).all()
         user_map = {u.id: u for u in users}
 
         for d in deliveries:
-            user = user_map.get(d.user_id)
+            try:
+                uid = uuid.UUID(d.user_id)
+                user = user_map.get(uid)
+            except ValueError:
+                user = None
+
             if user and user.email:
+                email_service.send_priority_notice(
+                    to_emails=[user.email],
+                    title=notice.title,
+                    content=notice.content,
+                    school_name=school_name
+                )
                 print(f"[EMAIL SENT] To: {user.email}, Subject: [HIGH] {school_name}: {notice.title}")
                 d.status = NoticeDeliveryStatus.SENT
                 d.sent_at = datetime.datetime.now(datetime.timezone.utc)

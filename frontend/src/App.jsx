@@ -11,14 +11,28 @@ import FeesTab from './pages/FeesTab';
 import GuardScanner from './pages/GuardScanner';
 import BoardDashboard from './pages/BoardDashboard';
 import ParentDashboard from './pages/ParentDashboard';
+import PasswordReset from './pages/PasswordReset';
 
 // Simple wrapper to force auth check
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div>Loading...</div>;
   if (!user) return <Navigate to="/login" />;
+
+  if (user.must_change_password) {
+      return <Navigate to="/password-reset" />;
+  }
+
   return children;
 };
+
+const RequireReset = ({ children }) => {
+    const { user, loading } = useAuth();
+    if (loading) return <div>Loading...</div>;
+    if (!user) return <Navigate to="/login" />;
+    if (!user.must_change_password) return <Navigate to="/dashboard" />;
+    return children;
+}
 
 const DashboardHome = () => {
     return (
@@ -38,6 +52,12 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          <Route path="/password-reset" element={
+              <RequireReset>
+                  <PasswordReset />
+              </RequireReset>
+          } />
 
           <Route path="/guard/scan" element={
             <ProtectedRoute>
