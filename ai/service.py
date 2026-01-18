@@ -92,11 +92,13 @@ class AIService:
         lower_msg = message.lower()
         response_text = ""
 
-        if "price" in lower_msg or "cost" in lower_msg or "subscription" in lower_msg:
+        if "pricing" in lower_msg or "demo" in lower_msg:
+            response_text = "I'd be happy to help! Would you like to fill out our quick [Admission/Inquiry Form] or leave your email?"
+        elif "price" in lower_msg or "cost" in lower_msg or "subscription" in lower_msg:
              response_text = "We offer three tiers: BASIC (Core SIS), PLUS (Adds AI & Teachers Hub), and PRO (Board 'God View', Risk Early Warning). Contact us for a quote!"
         elif "feature" in lower_msg or "what can you do" in lower_msg:
              response_text = "Classa is an Intelligent School Management System. We offer Smart Admissions, Automated Payment Recovery, AI Assistant, and a comprehensive Board Dashboard."
-        elif "trial" in lower_msg or "demo" in lower_msg:
+        elif "trial" in lower_msg:
              response_text = "We would love to show you a demo! Please click the 'Request a FREE trial' badge to get started."
         else:
              response_text = "Thank you for your interest in Classa! I can help you with pricing, features, or setting up a trial. What would you like to know?"

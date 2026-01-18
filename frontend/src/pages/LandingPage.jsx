@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Zap, Users, BarChart3, MessageSquare, X,
@@ -140,9 +140,35 @@ const LandingPage = () => {
   const [activeSection, setActiveSection] = useState('home');
   const [chatOpen, setChatOpen] = useState(false);
 
+  // Intersection Observer to detect active section
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id);
+          }
+        });
+      },
+      { threshold: 0.5 } // Trigger when 50% of the section is visible
+    );
+
+    const sections = ['home', 'features', 'pricing', 'services', 'contact'];
+    sections.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   const scrollTo = (id) => {
     setActiveSection(id);
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleRequestDemo = () => {
+    window.location.href = '/public/admissions/123e4567-e89b-12d3-a456-426614174000';
   };
 
   return (
@@ -274,7 +300,7 @@ const LandingPage = () => {
             </p>
             <div className="flex flex-col md:flex-row gap-6 justify-center">
                 <input type="email" placeholder="Enter your work email" className="px-6 py-4 rounded-full text-gray-900 w-full md:w-96 focus:outline-none" />
-                <button className="px-8 py-4 bg-nepsis-alert text-white rounded-full font-bold hover:bg-opacity-90 transition-all">
+                <button onClick={handleRequestDemo} className="px-8 py-4 bg-nepsis-alert text-white rounded-full font-bold hover:bg-opacity-90 transition-all">
                     Request Demo
                 </button>
             </div>
@@ -287,7 +313,7 @@ const LandingPage = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         whileHover={{ scale: 1.05 }}
-        onClick={() => setChatOpen(true)}
+        onClick={handleRequestDemo}
       >
          <div className="bg-white px-4 py-2 rounded-full shadow-lg border border-gray-200 flex items-center gap-2">
             <span className="text-nepsis-primary font-bold text-sm">Request a FREE trial</span>
