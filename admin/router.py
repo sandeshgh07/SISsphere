@@ -12,7 +12,7 @@ from audit.listeners import set_reason
 from audit.models import AuditLog
 from students.models import Student
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/superadmin", tags=["admin"])
 
@@ -33,6 +33,9 @@ class AuditLogOut(BaseModel):
 
 class SchoolTierUpdate(BaseModel):
     tier: SubscriptionTier
+
+class ExtendSubscriptionRequest(BaseModel):
+    days: int
 
 class StatsResponse(BaseModel):
     total_schools: int
@@ -100,6 +103,128 @@ def deactivate_school(
     db.commit()
     db.refresh(school)
     return {"message": "School deactivated", "id": school.id}
+
+@router.post("/schools/{school_id}/toggle-active")
+def toggle_school_active(
+    school_id: str,
+    db: Session = Depends(get_db),
+    user = Depends(require_roles(Roles.SUPER_ADMIN))
+):
+    """
+    Manual Toggle: Freeze/Unfreeze a school without changing subscription.
+    """
+    try:
+        school_uuid = uuid.UUID(school_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid school ID format")
+
+    school = db.query(school_models.School).filter(school_models.School.id == school_uuid).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    new_status = not school.is_active
+    action = "Activation" if new_status else "Deactivation"
+    set_reason(f"System Override: Manual {action}")
+
+    school.is_active = new_status
+    db.commit()
+    db.refresh(school)
+
+    return {
+        "message": f"School {action} Successful",
+        "id": school.id,
+        "is_active": school.is_active
+    }
+
+import uuid
+
+@router.post("/schools/{school_id}/trial")
+def start_free_trial(
+    school_id: str,
+    db: Session = Depends(get_db),
+    user = Depends(require_roles(Roles.SUPER_ADMIN))
+):
+    """
+    Start 14-Day Free Trial: Sets tier to PRO and expiry to now + 14 days.
+    """
+    # Convert string to UUID for query
+    try:
+        school_uuid = uuid.UUID(school_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid school ID format")
+
+    school = db.query(school_models.School).filter(school_models.School.id == school_uuid).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    set_reason("System Override: Started 14-Day Free Trial")
+    school.subscription_tier = SubscriptionTier.PRO
+    school.subscription_expiry = datetime.utcnow() + timedelta(days=14)
+    # Ensure active if it was inactive
+    school.is_active = True
+
+    db.commit()
+    db.refresh(school)
+    return {
+        "message": "14-Day Free Trial Started",
+        "school_id": school.id,
+        "new_tier": school.subscription_tier,
+        "expiry": school.subscription_expiry
+    }
+
+@router.post("/schools/{school_id}/extend")
+def extend_subscription(
+    school_id: str,
+    request: ExtendSubscriptionRequest,
+    db: Session = Depends(get_db),
+    user = Depends(require_roles(Roles.SUPER_ADMIN))
+):
+    """
+    Extend Expiry: Push the current expiry date forward by N days.
+    """
+    try:
+        school_uuid = uuid.UUID(school_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid school ID format")
+
+    school = db.query(school_models.School).filter(school_models.School.id == school_uuid).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    if not school.subscription_expiry:
+        # If no expiry set, start from now
+        base_date = datetime.utcnow()
+    else:
+        # If already expired, extend from now? Or from expiry?
+        # Prompt says "push the current expiry date forward".
+        # If expired long ago, extending by 1 day from old date might still be expired.
+        # "Extend" usually means add to existing if valid, or add to NOW if expired.
+        # "Nepal-Ready": "lets you update a school's status the second you receive a phone call".
+        # If they pay for a month, they expect 1 month of access.
+        # If they were locked out yesterday, and pay for 30 days, they get 30 days from now ideally.
+        # But simplistic logic: new_expiry = max(current_expiry, now) + days
+        base_date = max(school.subscription_expiry, datetime.utcnow())
+
+    new_expiry = base_date + timedelta(days=request.days)
+
+    set_reason(f"System Override: Extended Subscription by {request.days} days")
+    school.subscription_expiry = new_expiry
+    # Re-activate if frozen? Not explicitly asked but logical.
+    # Prompt says "Manual Toggle: Allow SuperUsers to toggle is_active".
+    # So we might leave is_active alone, but usually payment implies activation.
+    # I'll enable it for convenience, or leave it.
+    # "Persistence: By freezing rather than deleting... regain access once they pay."
+    # Regain access implies unfreezing. I'll unfreeze.
+    school.is_active = True
+
+    db.commit()
+    db.refresh(school)
+
+    return {
+        "message": f"Subscription extended by {request.days} days",
+        "school_id": school.id,
+        "new_expiry": school.subscription_expiry
+    }
 
 @router.get("/audit-logs", response_model=List[AuditLogOut])
 def list_audit_logs(
