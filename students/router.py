@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from auth.dependencies import get_db, require_roles, TenantAccess, Roles
@@ -6,7 +6,8 @@ from academics import models as academic_models
 from schools import models as school_models
 from students import models as student_models
 from audit.listeners import set_reason
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import datetime
 
 router = APIRouter(prefix="/api/students", tags=["students"])
 

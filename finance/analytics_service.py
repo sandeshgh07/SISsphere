@@ -9,7 +9,8 @@ _revenue_cache = {}
 class FinanceAnalyticsService:
     def __init__(self, db: Session, school_id: str):
         self.db = db
-        self.school_id = school_id
+        # Ensure school_id is string for compatibility with finance models
+        self.school_id = str(school_id)
         # Use UTC date
         self.today = datetime.now(timezone.utc).date()
 

@@ -77,15 +77,29 @@ const GuardScanner = () => {
        {/* Overlay for Feedback */}
        {(scanResult || error) && (
            <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300
-                ${scanResult ? 'bg-green-600/90' : error?.type === 'BLOCKED' ? 'bg-[#5C2438]/95' : 'bg-red-600/90'}
+                ${scanResult ? 'bg-green-600/90' : error?.type === 'BLOCKED' ? 'bg-[#5C2438]' : 'bg-red-600/90'}
            `}>
                 {scanResult && (
                     <>
                         <div className="text-6xl mb-4">✅</div>
 
-                        {scanResult.photo_url && (
-                            <img src={scanResult.photo_url} alt="Student" className="w-32 h-32 rounded-full object-cover border-4 border-white mb-4" />
-                        )}
+                        <div className="flex items-center justify-center gap-8 mb-6">
+                            <div className="flex flex-col items-center">
+                                {scanResult.student_photo_url || scanResult.photo_url ? (
+                                    <img src={scanResult.student_photo_url || scanResult.photo_url} alt="Student" className="w-32 h-32 aspect-square rounded-full object-cover border-4 border-white shadow-xl" />
+                                ) : (
+                                    <div className="w-32 h-32 aspect-square rounded-full bg-white/20 border-4 border-white flex items-center justify-center text-4xl">🎓</div>
+                                )}
+                                <span className="mt-2 font-semibold text-sm uppercase tracking-wide opacity-80">Student</span>
+                            </div>
+
+                            {scanResult.parent_photo_url && (
+                                <div className="flex flex-col items-center animate-in zoom-in slide-in-from-right duration-500">
+                                    <img src={scanResult.parent_photo_url} alt="Guardian" className="w-32 h-32 aspect-square rounded-full object-cover border-4 border-white shadow-xl" />
+                                    <span className="mt-2 font-semibold text-sm uppercase tracking-wide opacity-80">Guardian</span>
+                                </div>
+                            )}
+                        </div>
 
                         <h1 className="text-4xl font-bold mb-2">{scanResult.student_name}</h1>
                         {scanResult.parent_name && (

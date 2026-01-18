@@ -39,7 +39,7 @@ def setup_data(db):
     if school:
         school_uuid = school.id
     else:
-        school = School(id=school_uuid, name="School Finance", code="SCH_FIN", is_active=True, subscription_tier=SubscriptionTier.PRO)
+        school = School(id=str(school_uuid), name="School Finance", code="SCH_FIN", is_active=True, subscription_tier=SubscriptionTier.PRO)
         db.add(school)
         db.commit()
 
@@ -96,6 +96,7 @@ def setup_data(db):
     create_payment(day_before, 300.0, "STRIPE")
 
     db.commit()
+    print(f"DEBUG: Setup created payments for school {sid_str}")
     return
 
 # Override Subscription
@@ -104,11 +105,11 @@ app.dependency_overrides[require_subscription_feature("pro_analytics")] = lambda
 def test_financial_velocity(setup_data, db):
     # Get actual school ID from DB in case it changed
     school = db.query(School).filter_by(code="SCH_FIN").first()
-    school_id = school.id
+    school_id = str(school.id) # Ensure string
 
     # Mock Principal
     principal_id = uuid.uuid4()
-    app.dependency_overrides[get_current_user] = lambda: User(id=principal_id, role=Roles.PRINCIPAL, school_id=school_id)
+    app.dependency_overrides[get_current_user] = lambda: User(id=str(principal_id), role=Roles.PRINCIPAL, school_id=school_id)
 
     response = client.get("/api/analytics/finance/velocity")
     assert response.status_code == 200

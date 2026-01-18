@@ -572,3 +572,16 @@ def get_revenue_velocity(
 
     service = FinanceAnalyticsService(db, current_user.school_id)
     return service.get_revenue_velocity(period)
+
+@router.get("/finance/velocity", dependencies=[Depends(require_subscription_feature("pro_analytics"))])
+def get_finance_velocity(
+    db: Session = Depends(get_db),
+    current_user: school_models.User = Depends(get_current_user)
+):
+    # Allow Board (Principal/Admin) and Accountant
+    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    if current_user.role not in allowed_roles:
+         raise HTTPException(status_code=403, detail="Access denied")
+
+    service = FinanceAnalyticsService(db, current_user.school_id)
+    return service.get_financial_velocity()
