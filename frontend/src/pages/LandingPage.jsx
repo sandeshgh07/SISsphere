@@ -167,8 +167,8 @@ const LandingPage = () => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleRequestDemo = () => {
-    window.location.href = '/public/admissions/123e4567-e89b-12d3-a456-426614174000';
+  const handleRequestDemo = (source = 'generic') => {
+    window.location.href = `/public/admissions/123e4567-e89b-12d3-a456-426614174000?source=${source}`;
   };
 
   return (
@@ -208,7 +208,7 @@ const LandingPage = () => {
                     The Intelligent School Management System powered by Nepsis AI.
                 </p>
                 <div className="flex gap-4 justify-center">
-                    <button onClick={() => scrollTo('contact')} className="px-8 py-4 bg-nepsis-primary text-white rounded-full font-bold hover:shadow-lg hover:scale-105 transition-all">
+                    <button onClick={() => handleRequestDemo('hero')} className="px-8 py-4 bg-nepsis-primary text-white rounded-full font-bold hover:shadow-lg hover:scale-105 transition-all">
                         Get Started
                     </button>
                     <button onClick={() => window.location.href='/login'} className="px-8 py-4 bg-white text-nepsis-primary border-2 border-nepsis-primary rounded-full font-bold hover:bg-gray-50 transition-all">
@@ -300,7 +300,7 @@ const LandingPage = () => {
             </p>
             <div className="flex flex-col md:flex-row gap-6 justify-center">
                 <input type="email" placeholder="Enter your work email" className="px-6 py-4 rounded-full text-gray-900 w-full md:w-96 focus:outline-none" />
-                <button onClick={handleRequestDemo} className="px-8 py-4 bg-nepsis-alert text-white rounded-full font-bold hover:bg-opacity-90 transition-all">
+                <button onClick={() => handleRequestDemo('footer')} className="px-8 py-4 bg-nepsis-alert text-white rounded-full font-bold hover:bg-opacity-90 transition-all">
                     Request Demo
                 </button>
             </div>
@@ -313,7 +313,7 @@ const LandingPage = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         whileHover={{ scale: 1.05 }}
-        onClick={handleRequestDemo}
+        onClick={() => handleRequestDemo('badge')}
       >
          <div className="bg-white px-4 py-2 rounded-full shadow-lg border border-gray-200 flex items-center gap-2">
             <span className="text-nepsis-primary font-bold text-sm">Request a FREE trial</span>

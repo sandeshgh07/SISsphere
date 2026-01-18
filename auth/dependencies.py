@@ -7,6 +7,9 @@ from schools import models as school_models
 from auth.jwt import SECRET_KEY, ALGORITHM
 from typing import List, Optional
 from audit.listeners import set_actor_id
+import logging
+
+log = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -76,6 +79,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     # Since we just added it, all new tokens have it. Old tokens (if any exist) have None.
     # User defaults to 1. So old tokens (None) != 1. They will be invalid. This is good (force logout).
     if token_version != user.token_version:
+        log.warning(f"Kill-switch triggered for user {user.id}. Token version {token_version} vs DB {user.token_version}")
         raise credentials_exception
 
     if not user.is_active:

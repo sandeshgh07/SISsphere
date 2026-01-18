@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Upload, CheckCircle, AlertTriangle } from 'lucide-react';
 
 const PublicAdmission = () => {
     const { school_uuid } = useParams();
+    const [searchParams] = useSearchParams();
+    const source = searchParams.get('source') || 'direct';
+
     const [formData, setFormData] = useState({
         first_name: '', last_name: '', parent_phone: '', age: '',
         target_grade: '', completed_grade: '', previous_school: '',
@@ -23,6 +26,7 @@ const PublicAdmission = () => {
         Object.keys(formData).forEach(k => {
             if (k !== 'terms') data.append(k, formData[k]);
         });
+        data.append('source', source);
         if (file) data.append('transcript', file);
 
         try {
