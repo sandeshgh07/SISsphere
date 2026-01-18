@@ -21,7 +21,7 @@ class BoardAnalytics(BaseModel):
     reputation_index: float
 
 class FinancialVelocityResponse(BaseModel):
-    triple_pulse: Dict[str, float]
+    triple_pulse: Dict[str, Any] # Changed from float to Any to support nested structure if needed, or flat. Service returns flat dict of floats usually.
     revenue_trend: List[Dict[str, Any]]
     source_breakdown: Dict[str, float]
 
@@ -63,12 +63,14 @@ def get_financial_velocity(
 @router.get("/analytics", response_model=BoardAnalytics)
 def get_board_analytics(
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.BOARD, Roles.SUPER_ADMIN)),
+    user: User = Depends(require_roles(Roles.BOARD, Roles.SUPER_ADMIN, Roles.PRINCIPAL)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
+    school_id_str = str(tenant.school_id)
+
     # 1. Total Enrollment
     enrollment = db.query(func.count(Student.id)).filter(
-        Student.school_id == tenant.school_id,
+        Student.school_id == school_id_str,
         Student.is_active == True
     ).scalar() or 0
 
@@ -77,12 +79,12 @@ def get_board_analytics(
     # Using Invoice.total_amount vs Invoice.amount_paid
 
     total_invoiced = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.school_id == tenant.school_id,
+        Invoice.school_id == school_id_str,
         Invoice.status != "CANCELLED"
     ).scalar() or 0.0
 
     total_collected = db.query(func.sum(Invoice.amount_paid)).filter(
-        Invoice.school_id == tenant.school_id,
+        Invoice.school_id == school_id_str,
         Invoice.status != "CANCELLED"
     ).scalar() or 0.0
 
@@ -105,7 +107,7 @@ def get_board_analytics(
     # We will stick to the Python loop for safety but optimize the query to be lean.
 
     resolved_complaints = db.query(Complaint.created_at, Complaint.resolved_at).filter(
-        Complaint.school_id == tenant.school_id,
+        Complaint.school_id == school_id_str,
         Complaint.status == ComplaintStatus.RESOLVED,
         Complaint.resolved_at.isnot(None)
     ).all()
@@ -119,11 +121,11 @@ def get_board_analytics(
 
     # Attendance %
     total_att = db.query(func.count(Attendance.id)).filter(
-        Attendance.school_id == tenant.school_id
+        Attendance.school_id == school_id_str
     ).scalar() or 0
 
     present_att = db.query(func.count(Attendance.id)).filter(
-        Attendance.school_id == tenant.school_id,
+        Attendance.school_id == school_id_str,
         Attendance.status == AttendanceStatus.PRESENT
     ).scalar() or 0
 

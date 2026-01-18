@@ -225,6 +225,34 @@ async def toggle_freeze(
     status_msg = "Active" if school.is_active else "Inactive"
     return {"message": f"School is now {status_msg}", "is_active": school.is_active}
 
+@router.get("/stats/counts")
+async def get_dashboard_counts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from communication.models import Complaint, Notice, ComplaintStatus
+
+    # 1. Unread/Open Complaints (Assigned to School)
+    complaints_count = db.query(Complaint).filter(
+        Complaint.school_id == str(current_user.school_id),
+        Complaint.status == ComplaintStatus.OPEN
+    ).count()
+
+    # 2. Recent Notices (Last 7 days, or specific logic)
+    # For now, let's just count all notices for simplicity or last 7 days
+    from datetime import datetime, timedelta
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+
+    notices_count = db.query(Notice).filter(
+        Notice.school_id == str(current_user.school_id),
+        Notice.created_at >= seven_days_ago
+    ).count()
+
+    return {
+        "complaints_count": complaints_count,
+        "notices_count": notices_count
+    }
+
 @router.get("/api/users", response_model=list[UserOut])
 async def list_users(
     db: Session = Depends(get_db),

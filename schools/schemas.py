@@ -6,7 +6,7 @@ from schools.constants import SubscriptionTier
 class SchoolCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9-]+$")
-    country: str = "Nepal"
+    country: str = Field(..., min_length=2, description="Country is mandatory")
     is_active: bool = True
 
 class PrincipalCreate(BaseModel):

@@ -40,6 +40,7 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     school = db.query(School).filter(School.id == user.school_id).first()
     expiry_str = school.subscription_expiry.isoformat() if school and school.subscription_expiry else None
     tier = school.subscription_tier if school else None
+    country = school.country if school else "Nepal"
 
     # Fetch roles
     roles = db.query(UserRole).filter(UserRole.user_id == user.id).all()
@@ -55,7 +56,8 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
             "token_version": user.token_version,
             "must_change_password": user.must_change_password,
             "subscription_expiry": expiry_str,
-            "subscription_tier": tier
+            "subscription_tier": tier,
+            "school_country": country
         },
         expires_minutes=60
     )
