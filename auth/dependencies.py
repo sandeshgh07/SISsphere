@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -33,7 +33,11 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> school_models.User:
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    x_active_role: Optional[str] = Header(None)
+) -> school_models.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -67,6 +71,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             is_active=True
         )
         set_actor_id("superuser")
+        superuser.current_role = Roles.SUPER_ADMIN
         return superuser
 
     user = db.query(school_models.User).filter(school_models.User.email == username).first()
@@ -94,6 +99,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             sub_status = calculate_subscription_status(school)
             if sub_status["status"] == SubscriptionStatus.LOCKED:
                  raise HTTPException(status_code=403, detail="Account Suspended: " + sub_status["message"])
+
+    # Role Context Verification
+    if x_active_role:
+        has_role = db.query(school_models.UserRole).filter(
+            school_models.UserRole.user_id == user.id,
+            school_models.UserRole.role_name == x_active_role
+        ).first()
+
+        # Fallback to legacy primary role check if not in UserRole table yet
+        if not has_role and user.role != x_active_role:
+             raise HTTPException(status_code=403, detail=f"User does not have role {x_active_role}")
+
+        user.current_role = x_active_role
+    else:
+        user.current_role = user.role
 
     # Set context for audit logging
     set_actor_id(user.id)
@@ -150,10 +170,11 @@ class TenantAccess:
 
 def require_roles(*allowed_roles: str):
     def role_checker(user: school_models.User = Depends(get_current_active_user)):
-        if user.role not in allowed_roles and user.role != Roles.SUPER_ADMIN:
+        current_role = getattr(user, "current_role", user.role)
+        if current_role not in allowed_roles and current_role != Roles.SUPER_ADMIN:
              raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role {user.role} is not authorized. Required: {allowed_roles}"
+                detail=f"Role {current_role} is not authorized. Required: {allowed_roles}"
             )
         return user
     return role_checker

@@ -7,8 +7,12 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
+    const activeRole = localStorage.getItem('activeRole');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (activeRole) {
+      config.headers['X-Active-Role'] = activeRole;
     }
     return config;
   },
@@ -21,6 +25,8 @@ api.interceptors.response.use(
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('role');
+      localStorage.removeItem('activeRole');
+      localStorage.removeItem('availableRoles');
       // Force redirect to login
       window.location.href = '/login';
     }
