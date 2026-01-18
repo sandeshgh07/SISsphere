@@ -20,7 +20,7 @@ const FeesTab = () => {
   const fetchFees = async () => {
     try {
       // Reuse student-health to get fees if no dedicated list endpoint
-      const response = await api.get('/analytics/student-health');
+      const response = await api.get('/api/analytics/student-health');
       if (response.data.fee_invoices) {
         setFees(response.data.fee_invoices);
       }
@@ -41,7 +41,7 @@ const FeesTab = () => {
     formData.append('fee_id', feeId);
 
     try {
-      await api.post('/finance/receipt', formData, {
+      await api.post('/api/finance/receipt', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       toast.success("Receipt uploaded successfully!");

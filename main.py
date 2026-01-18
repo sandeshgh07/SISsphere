@@ -28,6 +28,7 @@ from analytics.parent_router import router as parent_analytics_router
 from analytics.board_router import router as board_router
 from students.admission_router import router as admission_router
 from attendance.gate_router import router as gate_router
+from schools.governance_router import router as governance_router
 
 from database import engine, Base, register_listeners, SessionLocal
 import os
@@ -117,10 +118,11 @@ app.include_router(communication_router, prefix="/api")
 # The previous line: prefix="/api/analytics" suggests the router didn't have /api/analytics built in?
 # Or maybe it did? Let's assume standard behavior is to rely on include_router prefix for the "global" part.
 app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
-app.include_router(parent_analytics_router, prefix="/api")
-app.include_router(board_router, prefix="/api")
-app.include_router(admission_router, prefix="/api")
-app.include_router(gate_router, prefix="/api")
+app.include_router(parent_analytics_router)
+app.include_router(board_router)
+app.include_router(admission_router)
+app.include_router(gate_router)
+app.include_router(governance_router)
 
 @app.get("/health")
 async def health_check():

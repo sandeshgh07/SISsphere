@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Request, status, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate
+from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut
 from .store import school_store
 from auth.router import get_current_superuser
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, require_roles, Roles
+from schools.models import User
 from database import SessionLocal
 from utils.audit_logger import log_forbidden_access
 import shutil
@@ -164,3 +165,15 @@ async def list_schools(
     schools = school_store.list_schools(db, is_active=is_active, school_id=school_id_filter)
     print("DEBUG API schools: school count:", len(schools))
     return schools
+
+@router.get("/api/users", response_model=list[UserOut])
+async def list_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))
+):
+    query = db.query(User).filter(User.school_id == current_user.school_id)
+    users = query.all()
+    # Compute full_name dynamic property or map it
+    for u in users:
+        u.full_name = f"{u.first_name} {u.last_name}"
+    return users

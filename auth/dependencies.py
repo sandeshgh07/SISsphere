@@ -68,15 +68,27 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
 
+    # Session Kill-Switch: Validate token version
+    token_version = payload.get("token_version")
+    # If token_version is missing (old tokens), we might want to allow it momentarily or reject.
+    # For strict security, we reject if version mismatches.
+    # If token has no version, assume 0 or handle backward compatibility?
+    # Since we just added it, all new tokens have it. Old tokens (if any exist) have None.
+    # User defaults to 1. So old tokens (None) != 1. They will be invalid. This is good (force logout).
+    if token_version != user.token_version:
+        raise credentials_exception
+
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
     # Set context for audit logging
     set_actor_id(user.id)
 
     return user
 
 def get_current_active_user(current_user: school_models.User = Depends(get_current_user)) -> school_models.User:
-    # Check if active if User had is_active field (it doesn't currently, but School does)
-    # Checking school active status
-    # school = current_user.school # if relationship existed
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
 class TenantAccess:
