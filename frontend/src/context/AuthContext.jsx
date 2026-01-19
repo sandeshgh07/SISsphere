@@ -43,9 +43,12 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, [token]);
 
-  const login = async (username, password) => {
+  const login = async (username, password, schoolId = null) => {
     try {
-      const response = await api.post('/auth/login', { username, password });
+      const requestBody = { username, password };
+      if (schoolId) requestBody.school_id = schoolId;
+
+      const response = await api.post('/auth/login', requestBody);
       const { access_token, available_roles } = response.data;
 
       localStorage.setItem('token', access_token);

@@ -57,6 +57,27 @@ def create_demo_data():
 
         # 2. Users (Principal & Parent)
         print("👤 Creating Users...")
+
+        # Create SUPER_ADMIN
+        print("👑 Creating SuperAdmin...")
+        admin_pass = pwd_context.hash("admin123")
+        admin_user = school_models.User(
+            email="admin@classa.com",
+            hashed_password=admin_pass,
+            first_name="Super",
+            last_name="Admin",
+            role="SUPER_ADMIN",
+            school_id=school_uuid,
+            must_change_password=False
+        )
+        db.add(admin_user)
+        db.commit()
+        db.refresh(admin_user)
+
+        # Add UserRole for SUPER_ADMIN
+        admin_role = school_models.UserRole(user_id=admin_user.id, role_name="SUPER_ADMIN")
+        db.add(admin_role)
+
         principal_pass = pwd_context.hash("nepsis123")
         principal = school_models.User(
             email="principal@nepsis.com",
