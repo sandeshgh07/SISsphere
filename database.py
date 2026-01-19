@@ -2,7 +2,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Use absolute path to ensure consistency regardless of execution context
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'dev.db')}")
 
 connect_args = {}
 if "sqlite" in DATABASE_URL:
