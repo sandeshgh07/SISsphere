@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, User, GraduationCap, Users, AlertTriangle, DollarSign, ShieldAlert } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 // Role display labels
 const ROLE_LABELS = {
@@ -31,9 +31,9 @@ export default function StudentProfilePage() {
   const effectiveRole = getEffectiveRole();
 
   // Role-based section visibility
-  const canSeeParents = ["principal", "school_admin", "teacher"].includes(effectiveRole);
-  const canSeeComplaints = ["principal", "school_admin", "teacher", "parent"].includes(effectiveRole);
-  const canSeeFees = ["principal", "school_admin", "accountant", "parent"].includes(effectiveRole);
+  const canSeeParents = ["principal", "super_admin", "teacher"].includes(effectiveRole);
+  const canSeeComplaints = ["principal", "super_admin", "teacher", "parent"].includes(effectiveRole);
+  const canSeeFees = ["principal", "super_admin", "accountant", "parent"].includes(effectiveRole);
 
   useEffect(() => {
     if (!isHydrated || !accessToken || !studentId) return;
@@ -42,9 +42,7 @@ export default function StudentProfilePage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get(`${API_BASE}/api/students/${studentId}/profile`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        const res = await api.get(`/students/${studentId}/profile`);
         setProfile(res.data);
       } catch (e) {
         console.error("[StudentProfile] Error loading profile:", e);
@@ -280,8 +278,8 @@ export default function StudentProfilePage() {
                         <Badge
                           className={
                             complaint.severity === "high" ? "bg-red-900/50 text-red-400" :
-                            complaint.severity === "medium" ? "bg-yellow-900/50 text-yellow-400" :
-                            "bg-blue-900/50 text-blue-400"
+                              complaint.severity === "medium" ? "bg-yellow-900/50 text-yellow-400" :
+                                "bg-blue-900/50 text-blue-400"
                           }
                         >
                           {complaint.severity || "Low"}
@@ -328,7 +326,7 @@ export default function StudentProfilePage() {
                       {fees.map((fee) => {
                         // Find payment for this fee
                         const payment = payments?.find(p => p.fee_id === fee.id);
-                        
+
                         return (
                           <tr key={fee.id} className="border-b border-slate-800 text-slate-100">
                             <td className="py-2">{fee.title}</td>
@@ -341,8 +339,8 @@ export default function StudentProfilePage() {
                                 <Badge
                                   className={
                                     payment.status === "verified" ? "bg-green-900/50 text-green-400" :
-                                    payment.status === "rejected" ? "bg-red-900/50 text-red-400" :
-                                    "bg-yellow-900/50 text-yellow-400"
+                                      payment.status === "rejected" ? "bg-red-900/50 text-red-400" :
+                                        "bg-yellow-900/50 text-yellow-400"
                                   }
                                 >
                                   {payment.status || "Pending"}

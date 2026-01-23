@@ -14,6 +14,7 @@ class GateTokenPayload(BaseModel):
 class GateScanResponse(BaseModel):
     status: str # SUCCESS, BLOCKED, EXPIRED
     student_name: str
+    student_grade: Optional[str] = None
     student_photo_url: Optional[str] = None
     parent_name: str
     parent_photo_url: Optional[str] = None

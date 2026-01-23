@@ -10,6 +10,8 @@ from audit.middleware import get_trace_id
 actor_id_ctx = contextvars.ContextVar("actor_id", default=None)
 # Context variable to store reason for action (optional).
 reason_ctx = contextvars.ContextVar("reason", default=None)
+# Context variable to store hidden users (optional JSON string).
+hidden_users_ctx = contextvars.ContextVar("hidden_users", default=None)
 
 def set_actor_id(user_id: str):
     actor_id_ctx.set(user_id)
@@ -22,6 +24,12 @@ def set_reason(reason: str):
 
 def get_reason():
     return reason_ctx.get()
+
+def set_hidden_users(hidden_users_json: str):
+    hidden_users_ctx.set(hidden_users_json)
+
+def get_hidden_users():
+    return hidden_users_ctx.get()
 
 def serialize(val):
     if isinstance(val, datetime):
@@ -44,6 +52,7 @@ def _audit(connection, target, action):
     actor_id = get_actor_id()
     trace_id = get_trace_id()
     reason = get_reason()
+    hidden_users = get_hidden_users()
 
     before = {}
     after = {}
@@ -82,7 +91,8 @@ def _audit(connection, target, action):
             after_state=json.dumps(after, default=serialize) if after else None,
             trace_id=trace_id,
             timestamp=timestamp,
-            reason=reason  # Added reason
+            reason=reason,  # Added reason
+            hidden_for_user_ids=hidden_users # Added hidden users
         )
     )
 

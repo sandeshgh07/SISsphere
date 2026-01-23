@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
 
 const ROLES = [
-  { value: "school_admin", label: "School Admin" },
+  { value: "super_admin", label: "School Admin" },
   { value: "accountant", label: "Accountant" },
   { value: "teacher", label: "Teacher" },
   { value: "parent", label: "Parent" },

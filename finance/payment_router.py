@@ -27,7 +27,7 @@ def create_invoice(
     invoice: finance_schemas.InvoiceCreate,
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    user=Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT))
+    user=Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT))
 ):
     """
     Admin/Accountant creates an invoice.
@@ -50,7 +50,7 @@ def initiate_payment(
     request: finance_schemas.PaymentInitiateRequest,
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    user=Depends(require_roles(Roles.PARENT, Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT, Roles.STUDENT))
+    user=Depends(require_roles(Roles.PARENT, Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.STUDENT))
 ):
     """
     Step A: Initiate Payment (Partial or Full)
@@ -271,7 +271,7 @@ def get_payment_status(
     invoice_id: str,
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    user=Depends(require_roles(Roles.PARENT, Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT, Roles.STUDENT))
+    user=Depends(require_roles(Roles.PARENT, Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.STUDENT))
 ):
     invoice = db.query(finance_models.Invoice).filter(
         finance_models.Invoice.id == invoice_id,
@@ -303,7 +303,7 @@ async def record_payment(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    current_user = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT))
+    current_user = Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT))
 ):
     """
     Hybrid Payment Entry:
@@ -446,7 +446,7 @@ def verify_payment(
     request: PaymentVerifyRequest,
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    current_user = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL))
+    current_user = Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL))
 ):
     """
     Verify or Reject a PENDING payment.

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,12 @@ import {
   FileText,
   Calendar,
   AlertCircle,
+  MessageSquare,
+  Mail,
+  Send,
+  UserPlus,
+  Crown,
+  BarChart3,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -53,7 +60,17 @@ import {
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 function SuperAdminDashboard() {
-  const { accessToken, logout, user } = useAuth();
+  const { accessToken, logout, user, getEffectiveRole } = useAuth();
+  const navigate = useNavigate();
+
+  // Protect Route: Only Platform Superusers allowed
+  useEffect(() => {
+    const role = getEffectiveRole ? getEffectiveRole() : user?.role;
+    if (role && role !== "superuser" && role !== "SUPER_USER") {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, getEffectiveRole, navigate]);
+
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -106,46 +123,76 @@ function SuperAdminDashboard() {
     saving: false,
   });
 
-  // Principal Handover Modal State
-  const [handoverModal, setHandoverModal] = useState({
-    open: false,
-    school: null,
-    step: 1,
-    currentPrincipal: null,
-    eligibleUsers: [],
-    selectedUserId: "",
-    createNewPrincipal: false,
-    newPrincipalForm: {
-      full_name: "",
-      email: "",
-      phone: "",
-      password: "",
-    },
-    oldPrincipalFate: "demote_teacher",
-    selectedGrades: [],
-    grades: [],
-    confirmText: "",
-    processing: false,
-  });
+
 
   // Superadmin Audit Logs - Phase 8B
   const [auditLogs, setAuditLogs] = useState([]);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
+
+  // Contact Requests Management
+  const [contactRequests, setContactRequests] = useState([]);
+  const [showContactRequests, setShowContactRequests] = useState(false);
+  const [contactRequestsLoading, setContactRequestsLoading] = useState(false);
+  const [replyModal, setReplyModal] = useState({ open: false, request: null, message: "", sending: false });
+
+  // Update Subscription Modal
+  const [updateTierModal, setUpdateTierModal] = useState({
+    open: false,
+    school: null,
+    tier: "FREE_TRIAL",
+    days: 30,
+    processing: false
+  });
+
+  // Add Admin Modal
+  const [addAdminModal, setAddAdminModal] = useState({
+    open: false,
+    school: null,
+    first_name: "",
+    last_name: "",
+    email: "",
+    password: "",
+    processing: false
+  });
 
   const headers = accessToken
     ? { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }
     : {};
 
   const loadSchools = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError("");
     try {
-      const res = await axios.get(`${API_BASE}/api/schools?status_filter=${statusFilter}`, { headers });
+      const res = await axios.get(`${API_BASE}/api/schools?status_filter=${statusFilter}`, { headers, timeout: 10000 });
       setSchools(res.data || []);
-      setError("");
     } catch (e) {
       console.error("[SuperAdmin] Failed to load schools:", e);
-      setError("Failed to load schools. Please try again.");
+      const detail = e.response?.data?.detail;
+      let errorMsg = "Failed to load schools. Please try again.";
+
+      if (e.response?.status === 422) {
+        // Handle Pydantic validation errors
+        if (Array.isArray(detail)) {
+          errorMsg = "Validation Error: " + detail.map(d => `${d.loc?.join('.')}: ${d.msg}`).join(' | ');
+        } else if (typeof detail === 'string') {
+          errorMsg = `Validation Error: ${detail}`;
+        }
+        toast.error(errorMsg);
+      } else if (e.response?.status === 401 || e.response?.status === 403) {
+        errorMsg = "Authentication error. Please login again.";
+        toast.error(errorMsg);
+      } else if (e.code === 'ECONNABORTED') {
+        errorMsg = "Request timed out. Please check your connection.";
+        toast.error(errorMsg);
+      } else {
+        toast.error(errorMsg);
+      }
+      setError(errorMsg);
+      setSchools([]);  // Ensure schools is always an array
     } finally {
       setLoading(false);
     }
@@ -171,6 +218,74 @@ function SuperAdminDashboard() {
       loadAuditLogs();
     }
   }, [showAuditLogs, loadAuditLogs]);
+
+  // Load contact requests
+  const loadContactRequests = useCallback(async () => {
+    if (!accessToken) return;
+    setContactRequestsLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/api/admin/contact-requests`, { headers });
+      setContactRequests(res.data || []);
+    } catch (e) {
+      console.error("[SuperAdmin] Failed to load contact requests:", e);
+    } finally {
+      setContactRequestsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (showContactRequests) {
+      loadContactRequests();
+    }
+  }, [showContactRequests, loadContactRequests]);
+
+  // Handle contact request status update
+  const updateContactStatus = async (requestId, newStatus) => {
+    try {
+      await axios.patch(`${API_BASE}/api/admin/contact-requests/${requestId}`,
+        { status: newStatus },
+        { headers }
+      );
+      toast.success(`Status updated to ${newStatus}`);
+      loadContactRequests();
+    } catch (err) {
+      toast.error("Failed to update status");
+    }
+  };
+
+  // Handle reply submission
+  const handleSendReply = async () => {
+    if (!replyModal.request || !replyModal.message.trim()) return;
+    setReplyModal(prev => ({ ...prev, sending: true }));
+    try {
+      await axios.post(
+        `${API_BASE}/api/admin/contact-requests/${replyModal.request.id}/reply`,
+        { message: replyModal.message },
+        { headers }
+      );
+      toast.success(`Reply sent to ${replyModal.request.email}`);
+      setReplyModal({ open: false, request: null, message: "", sending: false });
+      loadContactRequests();
+    } catch (err) {
+      toast.error("Failed to send reply");
+    } finally {
+      setReplyModal(prev => ({ ...prev, sending: false }));
+    }
+  };
+
+  // Get status badge color for contact requests
+  const getContactStatusBadge = (status) => {
+    switch (status) {
+      case "NEW":
+        return <Badge className="bg-blue-600">New</Badge>;
+      case "IN_PROGRESS":
+        return <Badge className="bg-amber-600">In Progress</Badge>;
+      case "RESOLVED":
+        return <Badge className="bg-green-600">Resolved</Badge>;
+      default:
+        return <Badge>{status}</Badge>;
+    }
+  };
 
   // Clean up object URLs to avoid memory leaks
   useEffect(() => {
@@ -278,7 +393,7 @@ function SuperAdminDashboard() {
     }
     try {
       const res = await axios.post(
-        `${API_BASE}/api/schools/${hardDeleteModal.school.id}/hard-delete`, 
+        `${API_BASE}/api/schools/${hardDeleteModal.school.id}/hard-delete`,
         { confirm_slug: hardDeleteModal.confirmSlug },
         { headers }
       );
@@ -303,6 +418,77 @@ function SuperAdminDashboard() {
     }
   };
 
+  // Update Subscription Tier
+  const openUpdateTierModal = (school) => {
+    setUpdateTierModal({
+      open: true,
+      school,
+      tier: school.subscription_tier || "free",
+      days: 30,
+      processing: false
+    });
+  };
+
+  const handleUpdateTier = async () => {
+    if (!updateTierModal.school) return;
+    setUpdateTierModal(prev => ({ ...prev, processing: true }));
+    try {
+      await axios.put(
+        `${API_BASE}/api/schools/${updateTierModal.school.id}/subscription`,
+        {
+          tier: updateTierModal.tier,
+          expiry_days: parseInt(updateTierModal.days)
+        },
+        { headers }
+      );
+      toast.success("Subscription updated successfully");
+      setUpdateTierModal({ open: false, school: null, tier: "FREE_TRIAL", days: 30, processing: false });
+      await loadSchools();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update subscription");
+    } finally {
+      setUpdateTierModal(prev => ({ ...prev, processing: false }));
+    }
+  };
+
+  // Add Admin
+  const openAddAdminModal = (school) => {
+    setAddAdminModal({
+      open: true,
+      school,
+      first_name: "",
+      last_name: "",
+      email: "",
+      password: "",
+      processing: false
+    });
+  };
+
+  const handleAddAdmin = async () => {
+    if (!addAdminModal.school) return;
+    setAddAdminModal(prev => ({ ...prev, processing: true }));
+    try {
+      await axios.post(
+        `${API_BASE}/api/users`,
+        {
+          first_name: addAdminModal.first_name,
+          last_name: addAdminModal.last_name,
+          email: addAdminModal.email,
+          password: addAdminModal.password,
+          role: "super_admin",
+          school_id: addAdminModal.school.id
+        },
+        { headers }
+      );
+      toast.success("Super User added to school successfully");
+      setAddAdminModal({ open: false, school: null, first_name: "", last_name: "", email: "", password: "", processing: false });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to add admin");
+    } finally {
+      setAddAdminModal(prev => ({ ...prev, processing: false }));
+    }
+  };
+
   // Phase 8B: Get school status badge
   const getSchoolStatusBadge = (school) => {
     if (school.is_deleted) {
@@ -318,20 +504,20 @@ function SuperAdminDashboard() {
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     // Validate file type
     const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
     if (!validTypes.includes(file.type)) {
       toast.error("Please upload PNG, JPG, JPEG, or SVG file");
       return;
     }
-    
+
     // Validate file size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
       toast.error("File size must be less than 2MB");
       return;
     }
-    
+
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(file));
   };
@@ -340,18 +526,18 @@ function SuperAdminDashboard() {
   const handleEditLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
     if (!validTypes.includes(file.type)) {
       toast.error("Please upload PNG, JPG, JPEG, or SVG file");
       return;
     }
-    
+
     if (file.size > 2 * 1024 * 1024) {
       toast.error("File size must be less than 2MB");
       return;
     }
-    
+
     setEditLogoModal(prev => ({
       ...prev,
       logoFile: file,
@@ -373,10 +559,10 @@ function SuperAdminDashboard() {
   const handleSaveLogo = async () => {
     if (!editLogoModal.school) return;
     if (!editLogoModal.logoFile) {
-       toast.error("Please select a file to upload");
-       return;
+      toast.error("Please select a file to upload");
+      return;
     }
-    
+
     setEditLogoModal(prev => ({ ...prev, saving: true }));
     try {
       const formData = new FormData();
@@ -409,29 +595,49 @@ function SuperAdminDashboard() {
       delete uploadHeaders["Content-Type"];
 
       if (showPrincipalForm) {
-        const res = await axios.post(
-          `${API_BASE}/api/schools/with-principal`,
-          {
-            school: { 
-              name, 
-              code: code || name.toLowerCase().replace(/\s+/g, '-'), 
-              type,
-              country,
-              logo_url: null, // Ignored by backend
-            },
-            principal: {
-              full_name: principalName,
-              email: principalEmail,
-              password: principalPassword,
-              role: "principal",
-              school_id: null,
-            },
+        // Split name (First Last)
+        const nameParts = principalName.trim().split(" ");
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || ".";
+
+        // Generate a slug that matches backend regex pattern: ^[a-z0-9-]+$
+        const generateSlug = (text) => {
+          return text
+            .toLowerCase()
+            .replace(/[''.]/g, '')     // Remove apostrophes and periods first (e.g., "St. Mary's" -> "st marys")
+            .replace(/\s+/g, '-')      // Replace spaces with hyphens
+            .replace(/[^a-z0-9-]/g, '') // Remove anything not a-z, 0-9, or hyphen
+            .replace(/-+/g, '-')       // Replace multiple hyphens with single
+            .replace(/^-|-$/g, '');    // Remove leading/trailing hyphens
+        };
+
+        const finalCode = code || generateSlug(name);
+
+        if (!finalCode || finalCode.length < 2) {
+          setError("Invalid slug generated. Please enter a valid school name or provide a custom slug.");
+          setCreating(false);
+          return;
+        }
+
+        const response = await axios.post(`${API_BASE}/api/schools/with-principal?role=super_admin`, {
+          school: {
+            name,
+            code: finalCode,
+            country,
+            is_active: true,
           },
-          { headers }
+          principal: {
+            first_name: firstName,
+            last_name: lastName,
+            email: principalEmail,
+            password: principalPassword,
+          },
+        },
+          { headers, timeout: 15000 }
         );
 
         if (logoFile) {
-          const schoolId = res.data.id;
+          const schoolId = response.data.id;
           const formData = new FormData();
           formData.append("file", logoFile);
           await axios.patch(`${API_BASE}/api/schools/${schoolId}/logo`, formData, {
@@ -487,477 +693,11 @@ function SuperAdminDashboard() {
     }
   };
 
-  // ===============================================
-  // PRINCIPAL HANDOVER FUNCTIONS
-  // ===============================================
 
-  const openHandoverModal = async (school) => {
-    try {
-      // Fetch school users and grades
-      const [usersRes, gradesRes] = await Promise.all([
-        axios.get(`${API_BASE}/api/users?school_id=${school.id}`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/grades?school_id=${school.id}`, { headers }).catch(() => ({ data: [] })),
-      ]);
 
-      const users = usersRes.data || [];
-      const grades = gradesRes.data || [];
 
-      // Find current principal
-      const currentPrincipal = users.find(
-        (u) => u.role === "principal" || (u.roles && u.roles.includes("principal"))
-      );
 
-      // Eligible users: Teachers and School Admins (not students, parents, accountants)
-      const eligibleUsers = users.filter((u) => {
-        const roles = u.roles || [u.role];
-        return roles.some((r) => ["teacher", "school_admin"].includes(r)) && u.id !== currentPrincipal?.id;
-      });
 
-      setHandoverModal({
-        open: true,
-        school,
-        step: 1,
-        currentPrincipal,
-        eligibleUsers,
-        selectedUserId: "",
-        createNewPrincipal: false,
-        newPrincipalForm: {
-          full_name: "",
-          email: "",
-          phone: "",
-          password: "",
-        },
-        oldPrincipalFate: "demote_teacher",
-        selectedGrades: [],
-        grades,
-        confirmText: "",
-        processing: false,
-      });
-    } catch (err) {
-      toast.error("Failed to load school data");
-    }
-  };
-
-  const closeHandoverModal = () => {
-    setHandoverModal((prev) => ({ ...prev, open: false }));
-  };
-
-  const nextStep = () => {
-    setHandoverModal((prev) => ({ ...prev, step: prev.step + 1 }));
-  };
-
-  const prevStep = () => {
-    setHandoverModal((prev) => ({ ...prev, step: prev.step - 1 }));
-  };
-
-  const updateHandoverForm = (field, value) => {
-    setHandoverModal((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const updateNewPrincipalForm = (field, value) => {
-    setHandoverModal((prev) => ({
-      ...prev,
-      newPrincipalForm: { ...prev.newPrincipalForm, [field]: value },
-    }));
-  };
-
-  const executeHandover = async () => {
-    const {
-      school,
-      currentPrincipal,
-      selectedUserId,
-      createNewPrincipal,
-      newPrincipalForm,
-      oldPrincipalFate,
-      selectedGrades,
-    } = handoverModal;
-
-    updateHandoverForm("processing", true);
-
-    try {
-      // Prepare payload
-      const payload = {
-        school_id: school.id,
-        old_principal_id: currentPrincipal?.id || null,
-        old_principal_fate: oldPrincipalFate,
-        old_principal_grades: oldPrincipalFate === "demote_teacher" ? selectedGrades : [],
-      };
-
-      if (createNewPrincipal) {
-        payload.create_new_principal = true;
-        payload.new_principal_data = newPrincipalForm;
-      } else {
-        payload.new_principal_id = selectedUserId;
-      }
-
-      // Call backend handover API
-      await axios.post(`${API_BASE}/api/schools/${school.id}/handover-principal`, payload, { headers });
-
-      toast.success("Principal handover completed successfully!");
-      closeHandoverModal();
-      await loadSchools();
-    } catch (err) {
-      const detail = err.response?.data?.detail || "Failed to execute principal handover";
-      toast.error(detail);
-    } finally {
-      updateHandoverForm("processing", false);
-    }
-  };
-
-  // Get selected new principal name for summary
-  const getSelectedNewPrincipalName = () => {
-    if (handoverModal.createNewPrincipal) {
-      return handoverModal.newPrincipalForm.full_name || "New Principal";
-    }
-    const user = handoverModal.eligibleUsers.find((u) => u.id === handoverModal.selectedUserId);
-    return user?.full_name || "Selected User";
-  };
-
-  const getOldPrincipalFateLabel = () => {
-    switch (handoverModal.oldPrincipalFate) {
-      case "demote_teacher":
-        return "Demote to Teacher";
-      case "demote_admin":
-        return "Demote to School Admin";
-      case "remove_principal_only":
-        return "Remove Principal Role Only";
-      default:
-        return "Unknown";
-    }
-  };
-
-  // Check if can proceed to next step
-  const canProceedFromStep = (step) => {
-    switch (step) {
-      case 1:
-        return true; // Warning acknowledgment
-      case 2:
-        return true; // Just viewing current principal
-      case 3:
-        // Must select or create new principal
-        if (handoverModal.createNewPrincipal) {
-          const f = handoverModal.newPrincipalForm;
-          return f.full_name && f.email && f.password;
-        }
-        return !!handoverModal.selectedUserId;
-      case 4:
-        // Must decide fate and optionally select grades
-        if (handoverModal.oldPrincipalFate === "demote_teacher") {
-          return handoverModal.selectedGrades.length > 0;
-        }
-        return true;
-      case 5:
-        return handoverModal.confirmText === "CONFIRM";
-      default:
-        return true;
-    }
-  };
-
-  // Render Handover Modal Content
-  const renderHandoverStep = () => {
-    const { step, school, currentPrincipal, eligibleUsers, grades } = handoverModal;
-
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-4">
-            <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 flex items-start gap-3">
-              <AlertTriangle className="h-6 w-6 text-red-400 shrink-0 mt-0.5" />
-              <div className="space-y-2">
-                <p className="text-red-200 font-semibold">High Authority Action</p>
-                <p className="text-sm text-red-300">
-                  This action transfers full administrative authority over <strong>{school?.name}</strong>.
-                </p>
-                <p className="text-sm text-red-300">
-                  The current principal will <strong>immediately lose</strong> all principal privileges including access to Users, Reports, and Audit Logs.
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-slate-400">
-              Please review carefully before proceeding. This action will be logged for audit purposes.
-            </p>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <h4 className="text-sm font-medium text-slate-300">Current Principal</h4>
-            {currentPrincipal ? (
-              <div className="bg-slate-800 rounded-lg p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 text-sm">Name:</span>
-                  <span className="text-slate-100">{currentPrincipal.full_name}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 text-sm">Email:</span>
-                  <span className="text-slate-100">{currentPrincipal.email}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 text-sm">Phone:</span>
-                  <span className="text-slate-100">{currentPrincipal.phone || "Not set"}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 text-sm">Roles:</span>
-                  <div className="flex gap-1">
-                    {(currentPrincipal.roles || [currentPrincipal.role]).map((r) => (
-                      <Badge key={r} variant="outline" className="text-xs bg-slate-700">
-                        {r}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-slate-800 rounded-lg p-4 text-center">
-                <p className="text-slate-400">No principal currently assigned to this school.</p>
-                <p className="text-sm text-slate-500 mt-1">You can assign a new principal in the next step.</p>
-              </div>
-            )}
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-4">
-            <h4 className="text-sm font-medium text-slate-300">Select New Principal</h4>
-
-            {/* Option Toggle */}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={!handoverModal.createNewPrincipal ? "default" : "outline"}
-                size="sm"
-                onClick={() => updateHandoverForm("createNewPrincipal", false)}
-                className={!handoverModal.createNewPrincipal ? "bg-blue-600" : ""}
-              >
-                Promote Existing User
-              </Button>
-              <Button
-                type="button"
-                variant={handoverModal.createNewPrincipal ? "default" : "outline"}
-                size="sm"
-                onClick={() => updateHandoverForm("createNewPrincipal", true)}
-                className={handoverModal.createNewPrincipal ? "bg-blue-600" : ""}
-              >
-                Create New Principal
-              </Button>
-            </div>
-
-            {!handoverModal.createNewPrincipal ? (
-              <div className="space-y-2">
-                <Label className="text-xs text-slate-400">Select from eligible users (Teachers, School Admins)</Label>
-                {eligibleUsers.length === 0 ? (
-                  <div className="text-sm text-slate-500 bg-slate-800 rounded p-3">
-                    No eligible users found. You must create a new principal.
-                  </div>
-                ) : (
-                  <Select
-                    value={handoverModal.selectedUserId}
-                    onValueChange={(val) => updateHandoverForm("selectedUserId", val)}
-                  >
-                    <SelectTrigger className="bg-slate-800 border-slate-600">
-                      <SelectValue placeholder="Select a user to promote" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-600">
-                      {eligibleUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.full_name} — {(u.roles || [u.role]).join(", ")}
-                          {u.grade_assignments?.length > 0 && ` (${u.grade_assignments.length} grades)`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3 bg-slate-800 rounded-lg p-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-slate-400">Full Name *</Label>
-                    <Input
-                      value={handoverModal.newPrincipalForm.full_name}
-                      onChange={(e) => updateNewPrincipalForm("full_name", e.target.value)}
-                      placeholder="John Doe"
-                      className="bg-slate-900 border-slate-600"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-400">Email *</Label>
-                    <Input
-                      type="email"
-                      value={handoverModal.newPrincipalForm.email}
-                      onChange={(e) => updateNewPrincipalForm("email", e.target.value)}
-                      placeholder="principal@school.edu.np"
-                      className="bg-slate-900 border-slate-600"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-400">Phone</Label>
-                    <Input
-                      value={handoverModal.newPrincipalForm.phone}
-                      onChange={(e) => updateNewPrincipalForm("phone", e.target.value)}
-                      placeholder="+977-"
-                      className="bg-slate-900 border-slate-600"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-400">Password *</Label>
-                    <Input
-                      type="password"
-                      value={handoverModal.newPrincipalForm.password}
-                      onChange={(e) => updateNewPrincipalForm("password", e.target.value)}
-                      placeholder="••••••••"
-                      className="bg-slate-900 border-slate-600"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-4">
-            <h4 className="text-sm font-medium text-slate-300">
-              Fate of Old Principal: {currentPrincipal?.full_name || "N/A"}
-            </h4>
-
-            {!currentPrincipal ? (
-              <div className="bg-slate-800 rounded-lg p-4 text-slate-400 text-sm">
-                No current principal to reassign. This step will be skipped.
-              </div>
-            ) : (
-              <>
-                <RadioGroup
-                  value={handoverModal.oldPrincipalFate}
-                  onValueChange={(val) => updateHandoverForm("oldPrincipalFate", val)}
-                  className="space-y-3"
-                >
-                  <div className="flex items-start space-x-3 bg-slate-800 rounded-lg p-3">
-                    <RadioGroupItem value="demote_teacher" id="fate-teacher" />
-                    <div>
-                      <Label htmlFor="fate-teacher" className="text-sm text-slate-200 cursor-pointer">
-                        Demote to Teacher
-                      </Label>
-                      <p className="text-xs text-slate-400">Requires selecting grades to assign</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3 bg-slate-800 rounded-lg p-3">
-                    <RadioGroupItem value="demote_admin" id="fate-admin" />
-                    <div>
-                      <Label htmlFor="fate-admin" className="text-sm text-slate-200 cursor-pointer">
-                        Demote to School Admin
-                      </Label>
-                      <p className="text-xs text-slate-400">Retains administrative access without principal authority</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3 bg-slate-800 rounded-lg p-3">
-                    <RadioGroupItem value="remove_principal_only" id="fate-remove" />
-                    <div>
-                      <Label htmlFor="fate-remove" className="text-sm text-slate-200 cursor-pointer">
-                        Remove Principal Role Only
-                      </Label>
-                      <p className="text-xs text-slate-400">
-                        If they have other roles (e.g., parent), those are retained
-                      </p>
-                    </div>
-                  </div>
-                </RadioGroup>
-
-                {/* Grade selection for Teacher demotion */}
-                {handoverModal.oldPrincipalFate === "demote_teacher" && (
-                  <div className="space-y-2 mt-4">
-                    <Label className="text-xs text-slate-400">Select grades to assign *</Label>
-                    <div className="bg-slate-800 rounded-lg p-3 max-h-40 overflow-y-auto">
-                      {grades.length === 0 ? (
-                        <p className="text-sm text-slate-500">No grades available</p>
-                      ) : (
-                        <div className="grid grid-cols-3 gap-2">
-                          {grades
-                            .filter((g) => g.is_active)
-                            .sort((a, b) => (a.level || 0) - (b.level || 0))
-                            .map((grade) => (
-                              <label key={grade.id} className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={handoverModal.selectedGrades.includes(grade.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      updateHandoverForm("selectedGrades", [
-                                        ...handoverModal.selectedGrades,
-                                        grade.id,
-                                      ]);
-                                    } else {
-                                      updateHandoverForm(
-                                        "selectedGrades",
-                                        handoverModal.selectedGrades.filter((id) => id !== grade.id)
-                                      );
-                                    }
-                                  }}
-                                  className="rounded"
-                                />
-                                <span className="text-sm text-slate-300">{grade.name}</span>
-                              </label>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                    {handoverModal.selectedGrades.length === 0 && (
-                      <p className="text-xs text-amber-400">Please select at least one grade</p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        );
-
-      case 5:
-        return (
-          <div className="space-y-4">
-            <h4 className="text-sm font-medium text-slate-300">Final Confirmation</h4>
-
-            <div className="bg-slate-800 rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-sm">School:</span>
-                <span className="text-slate-100">{school?.name}</span>
-              </div>
-              {currentPrincipal && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-sm">Old Principal:</span>
-                    <span className="text-slate-100">
-                      {currentPrincipal.full_name} → {getOldPrincipalFateLabel()}
-                    </span>
-                  </div>
-                </>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-sm">New Principal:</span>
-                <span className="text-green-400 font-medium">{getSelectedNewPrincipalName()}</span>
-              </div>
-            </div>
-
-            <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
-              <p className="text-sm text-red-300 mb-3">
-                Type <strong>CONFIRM</strong> to execute this principal handover:
-              </p>
-              <Input
-                value={handoverModal.confirmText}
-                onChange={(e) => updateHandoverForm("confirmText", e.target.value)}
-                placeholder="Type CONFIRM"
-                className="bg-slate-900 border-slate-600 text-center font-mono"
-              />
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col" data-testid="superadmin-dashboard">
@@ -971,12 +711,37 @@ function SuperAdminDashboard() {
           <Button
             variant="outline"
             size="sm"
+            className="border-slate-600 text-emerald-300 hover:bg-emerald-900/30"
+            onClick={() => navigate('/god-view')}
+            data-testid="god-view-button"
+          >
+            <BarChart3 className="h-4 w-4 mr-2" />
+            God View
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             className={`border-slate-600 ${showAuditLogs ? 'bg-purple-900/30 text-purple-300' : 'text-slate-300'}`}
             onClick={() => setShowAuditLogs(!showAuditLogs)}
             data-testid="toggle-audit-logs"
           >
             <FileText className="h-4 w-4 mr-2" />
             Audit Logs
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={`border-slate-600 ${showContactRequests ? 'bg-blue-900/30 text-blue-300' : 'text-slate-300'}`}
+            onClick={() => setShowContactRequests(!showContactRequests)}
+            data-testid="toggle-requests"
+          >
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Requests
+            {contactRequests.filter(r => r.status === "NEW").length > 0 && (
+              <span className="ml-2 px-1.5 py-0.5 bg-red-600 text-white text-xs rounded-full">
+                {contactRequests.filter(r => r.status === "NEW").length}
+              </span>
+            )}
           </Button>
           <span className="text-sm text-slate-400">{user?.email}</span>
           <Button
@@ -1011,14 +776,13 @@ function SuperAdminDashboard() {
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {auditLogs.map((log, idx) => (
                     <div key={log.id || idx} className="flex items-start gap-3 p-3 bg-slate-800 rounded-lg">
-                      <div className={`p-1.5 rounded-full ${
-                        log.action?.includes('DELETED') ? 'bg-red-900/50 text-red-400' :
+                      <div className={`p-1.5 rounded-full ${log.action?.includes('DELETED') ? 'bg-red-900/50 text-red-400' :
                         log.action?.includes('RESTORED') ? 'bg-green-900/50 text-green-400' :
-                        'bg-purple-900/50 text-purple-400'
-                      }`}>
+                          'bg-purple-900/50 text-purple-400'
+                        }`}>
                         {log.action?.includes('DELETED') ? <Trash2 className="h-3 w-3" /> :
-                         log.action?.includes('RESTORED') ? <RotateCcw className="h-3 w-3" /> :
-                         <FileText className="h-3 w-3" />}
+                          log.action?.includes('RESTORED') ? <RotateCcw className="h-3 w-3" /> :
+                            <FileText className="h-3 w-3" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -1039,6 +803,142 @@ function SuperAdminDashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* Contact Requests Management Panel */}
+        {showContactRequests && (
+          <Card className="bg-slate-900 border-blue-700/50" data-testid="contact-requests-panel">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-slate-100 flex items-center gap-2">
+                <Mail className="h-5 w-5 text-blue-400" />
+                Contact Requests
+                {contactRequests.filter(r => r.status === "NEW").length > 0 && (
+                  <Badge className="bg-red-600 ml-2">
+                    {contactRequests.filter(r => r.status === "NEW").length} New
+                  </Badge>
+                )}
+              </CardTitle>
+              <Button size="sm" variant="ghost" className="text-slate-400" onClick={() => setShowContactRequests(false)}>
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {contactRequestsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
+                </div>
+              ) : contactRequests.length === 0 ? (
+                <p className="text-slate-400 text-sm text-center py-4">No contact requests yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700">
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">Name</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">Email</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">Subject</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">School</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">Status</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-medium">Date</th>
+                        <th className="text-right py-2 px-2 text-slate-400 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contactRequests.map((req) => (
+                        <tr key={req.id} className="border-b border-slate-800 hover:bg-slate-800/50">
+                          <td className="py-3 px-2 text-slate-200">{req.name}</td>
+                          <td className="py-3 px-2 text-slate-300">{req.email}</td>
+                          <td className="py-3 px-2 text-slate-300 max-w-[200px] truncate">{req.subject}</td>
+                          <td className="py-3 px-2 text-slate-400">{req.school_name || '-'}</td>
+                          <td className="py-3 px-2">{getContactStatusBadge(req.status)}</td>
+                          <td className="py-3 px-2 text-slate-400 text-xs">
+                            {new Date(req.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                                <DropdownMenuItem
+                                  className="cursor-pointer"
+                                  onClick={() => setReplyModal({ open: true, request: req, message: "", sending: false })}
+                                >
+                                  <Send className="h-4 w-4 mr-2" /> Reply
+                                </DropdownMenuItem>
+                                {req.status !== "IN_PROGRESS" && (
+                                  <DropdownMenuItem
+                                    className="cursor-pointer"
+                                    onClick={() => updateContactStatus(req.id, "IN_PROGRESS")}
+                                  >
+                                    <Loader2 className="h-4 w-4 mr-2" /> Mark In Progress
+                                  </DropdownMenuItem>
+                                )}
+                                {req.status !== "RESOLVED" && (
+                                  <DropdownMenuItem
+                                    className="cursor-pointer"
+                                    onClick={() => updateContactStatus(req.id, "RESOLVED")}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 mr-2" /> Mark Resolved
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Reply Modal */}
+        <Dialog open={replyModal.open} onOpenChange={(open) => !open && setReplyModal({ open: false, request: null, message: "", sending: false })}>
+          <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-slate-100 flex items-center gap-2">
+                <Send className="h-5 w-5 text-blue-400" />
+                Reply to {replyModal.request?.name}
+              </DialogTitle>
+              <DialogDescription className="text-slate-400">
+                Send a reply to {replyModal.request?.email}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="bg-slate-800 p-3 rounded-lg">
+                <p className="text-xs text-slate-400 mb-1">Original Message:</p>
+                <p className="text-sm text-slate-200">{replyModal.request?.message}</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Your Reply</Label>
+                <textarea
+                  value={replyModal.message}
+                  onChange={(e) => setReplyModal(prev => ({ ...prev, message: e.target.value }))}
+                  placeholder="Type your reply here..."
+                  rows={5}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={replyModal.sending}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReplyModal({ open: false, request: null, message: "", sending: false })} className="border-slate-600">
+                Cancel
+              </Button>
+              <Button onClick={handleSendReply} disabled={!replyModal.message.trim() || replyModal.sending} className="bg-blue-600 hover:bg-blue-500">
+                {replyModal.sending ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
+                ) : (
+                  <><Send className="h-4 w-4 mr-2" /> Send Reply</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Create School Card */}
         <Card className="bg-slate-900 border-slate-700" data-testid="superadmin-create-school-card">
@@ -1112,7 +1012,7 @@ function SuperAdminDashboard() {
                       Creating...
                     </>
                   ) : showPrincipalForm ? (
-                    "Create with Principal"
+                    "Create with Super Admin"
                   ) : (
                     "Create Institution"
                   )}
@@ -1120,14 +1020,14 @@ function SuperAdminDashboard() {
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Principal account (recommended)</span>
+                <span>School Super Admin account (recommended)</span>
                 <button
                   type="button"
                   onClick={() => setShowPrincipalForm((v) => !v)}
                   className="text-blue-400 hover:text-blue-300"
                   data-testid="toggle-principal-form-button"
                 >
-                  {showPrincipalForm ? "Skip principal" : "Add principal"}
+                  {showPrincipalForm ? "Skip Super Admin" : "Add Super Admin"}
                 </button>
               </div>
 
@@ -1137,7 +1037,7 @@ function SuperAdminDashboard() {
                 <div className="flex items-start gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <label 
+                      <label
                         className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md cursor-pointer transition-colors"
                         data-testid="logo-upload-button"
                       >
@@ -1154,7 +1054,7 @@ function SuperAdminDashboard() {
                       {logoPreview && (
                         <button
                           type="button"
-                  onClick={() => { setLogoUrl(""); setLogoFile(null); setLogoPreview(null); }}
+                          onClick={() => { setLogoUrl(""); setLogoFile(null); setLogoPreview(null); }}
                           className="text-xs text-red-400 hover:text-red-300"
                         >
                           Remove
@@ -1165,9 +1065,9 @@ function SuperAdminDashboard() {
                   </div>
                   {logoPreview && (
                     <div className="w-16 h-16 rounded-lg border border-slate-600 overflow-hidden bg-slate-800 flex items-center justify-center">
-                      <img 
-                        src={logoPreview} 
-                        alt="Logo preview" 
+                      <img
+                        src={logoPreview}
+                        alt="Logo preview"
                         className="max-w-full max-h-full object-contain"
                         data-testid="logo-preview"
                       />
@@ -1179,24 +1079,24 @@ function SuperAdminDashboard() {
               {showPrincipalForm && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-800">
                   <div className="space-y-1">
-                    <Label className="text-xs text-slate-300">Principal Name *</Label>
+                    <Label className="text-xs text-slate-300">Super Admin Name *</Label>
                     <Input
                       value={principalName}
                       onChange={(e) => setPrincipalName(e.target.value)}
                       required={showPrincipalForm}
-                      placeholder="Principal Name"
+                      placeholder="Super Admin Name"
                       className="bg-slate-950 border-slate-700 text-slate-100"
                       data-testid="principal-name-input"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-slate-300">Principal Email *</Label>
+                    <Label className="text-xs text-slate-300">Super Admin Email *</Label>
                     <Input
                       type="email"
                       value={principalEmail}
                       onChange={(e) => setPrincipalEmail(e.target.value)}
                       required={showPrincipalForm}
-                      placeholder="principal@school.edu.np"
+                      placeholder="admin@school.edu.np"
                       className="bg-slate-950 border-slate-700 text-slate-100"
                       data-testid="principal-email-input"
                     />
@@ -1263,9 +1163,8 @@ function SuperAdminDashboard() {
                 {schools.map((s) => (
                   <div
                     key={s.id}
-                    className={`flex items-center justify-between rounded-lg border px-4 py-3 hover:bg-slate-800/50 transition-colors ${
-                      s.is_deleted ? 'border-red-900/50 bg-red-950/20' : 'border-slate-800'
-                    }`}
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 hover:bg-slate-800/50 transition-colors ${s.is_deleted ? 'border-red-900/50 bg-red-950/20' : 'border-slate-800'
+                      }`}
                     data-testid={`school-row-${s.id}`}
                   >
                     <div className="flex items-center gap-3 flex-1">
@@ -1291,7 +1190,7 @@ function SuperAdminDashboard() {
                         </div>
                         <div className="text-xs text-slate-400 mt-1">
                           {s.slug && `Slug: ${s.slug} · `}
-                          {s.principal_id ? "Has Principal" : "No Principal"}
+                          {s.has_admin ? `${s.admin_count || 1} Super Admin(s)` : "No Super Admin"}
                         </div>
                       </div>
                     </div>
@@ -1336,19 +1235,7 @@ function SuperAdminDashboard() {
                         </Button>
                       )}
 
-                      {/* Change Principal Button */}
-                      {!s.is_deleted && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/30"
-                          onClick={() => openHandoverModal(s)}
-                          title="Change Principal"
-                          data-testid={`change-principal-${s.id}`}
-                        >
-                          <UserCog className="h-4 w-4" />
-                        </Button>
-                      )}
+
 
                       {/* Actions Dropdown - Phase 8B */}
                       <DropdownMenu>
@@ -1361,7 +1248,7 @@ function SuperAdminDashboard() {
                           {!s.is_deleted && (
                             <>
                               {s.is_active ? (
-                                <DropdownMenuItem 
+                                <DropdownMenuItem
                                   onClick={() => handleToggleStatus(s.id, true)}
                                   className="text-amber-400 hover:text-amber-300 cursor-pointer"
                                 >
@@ -1369,7 +1256,7 @@ function SuperAdminDashboard() {
                                   Suspend School
                                 </DropdownMenuItem>
                               ) : (
-                                <DropdownMenuItem 
+                                <DropdownMenuItem
                                   onClick={() => handleToggleStatus(s.id, false)}
                                   className="text-green-400 hover:text-green-300 cursor-pointer"
                                 >
@@ -1377,25 +1264,39 @@ function SuperAdminDashboard() {
                                   Activate School
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={() => setSoftDeleteModal({ open: true, school: s })}
                                 className="text-red-400 hover:text-red-300 cursor-pointer"
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
                                 Soft Delete
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openUpdateTierModal(s)}
+                                className="text-amber-400 hover:text-amber-300 cursor-pointer"
+                              >
+                                <Crown className="h-4 w-4 mr-2" />
+                                Manage Subscription
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openAddAdminModal(s)}
+                                className="text-blue-400 hover:text-blue-300 cursor-pointer"
+                              >
+                                <UserPlus className="h-4 w-4 mr-2" />
+                                Add Super Admin
+                              </DropdownMenuItem>
                             </>
                           )}
                           {s.is_deleted && (
                             <>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={() => setRestoreModal({ open: true, school: s })}
                                 className="text-green-400 hover:text-green-300 cursor-pointer"
                               >
                                 <RotateCcw className="h-4 w-4 mr-2" />
                                 Restore School
                               </DropdownMenuItem>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={() => setHardDeleteModal({ open: true, school: s, confirmSlug: "" })}
                                 className="text-red-500 hover:text-red-400 cursor-pointer"
                               >
@@ -1415,68 +1316,106 @@ function SuperAdminDashboard() {
         </Card>
       </main>
 
-      {/* Principal Handover Modal */}
-      <Dialog open={handoverModal.open} onOpenChange={(open) => !open && closeHandoverModal()}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-slate-100 max-w-lg max-h-[90vh] overflow-y-auto">
+
+
+      {/* Update Subscription Modal */}
+      <Dialog open={updateTierModal.open} onOpenChange={(open) => !open && setUpdateTierModal(prev => ({ ...prev, open: false }))}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserCog className="h-5 w-5 text-purple-400" />
-              Change Principal — {handoverModal.school?.name}
-            </DialogTitle>
-            <DialogDescription className="text-slate-400">
-              Step {handoverModal.step} of 5 — High Authority Action
+            <DialogTitle>Manage Subscription - {updateTierModal.school?.name}</DialogTitle>
+            <DialogDescription>
+              Update the subscription tier and validity period.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="py-4">{renderHandoverStep()}</div>
-
-          <DialogFooter className="flex justify-between">
-            <div>
-              {handoverModal.step > 1 && (
-                <Button
-                  variant="outline"
-                  onClick={prevStep}
-                  className="border-slate-600 text-slate-300"
-                  disabled={handoverModal.processing}
-                >
-                  Back
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={closeHandoverModal}
-                className="border-slate-600 text-slate-300"
-                disabled={handoverModal.processing}
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Subscription Tier</Label>
+              <Select
+                value={updateTierModal.tier}
+                onValueChange={(val) => setUpdateTierModal(prev => ({ ...prev, tier: val }))}
               >
-                Cancel
-              </Button>
-              {handoverModal.step < 5 ? (
-                <Button
-                  onClick={nextStep}
-                  disabled={!canProceedFromStep(handoverModal.step)}
-                  className="bg-purple-600 hover:bg-purple-500"
-                >
-                  Continue
-                </Button>
-              ) : (
-                <Button
-                  onClick={executeHandover}
-                  disabled={!canProceedFromStep(5) || handoverModal.processing}
-                  className="bg-red-600 hover:bg-red-500"
-                >
-                  {handoverModal.processing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "Confirm & Execute"
-                  )}
-                </Button>
-              )}
+                <SelectTrigger className="bg-slate-800 border-slate-600">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-600 text-slate-100">
+                  <SelectItem value="FREE_TRIAL">Free Trial</SelectItem>
+                  <SelectItem value="BASIC">Basic</SelectItem>
+                  <SelectItem value="PLUS">Plus</SelectItem>
+                  <SelectItem value="PRO">Pro</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Extend Validity (Days from now)</Label>
+              <Input
+                type="number"
+                value={updateTierModal.days}
+                onChange={(e) => setUpdateTierModal(prev => ({ ...prev, days: e.target.value }))}
+                className="bg-slate-800 border-slate-600"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdateTierModal(prev => ({ ...prev, open: false }))}>Cancel</Button>
+            <Button onClick={handleUpdateTier} disabled={updateTierModal.processing}>
+              {updateTierModal.processing ? "Updating..." : "Update Subscription"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Admin Modal */}
+      <Dialog open={addAdminModal.open} onOpenChange={(open) => !open && setAddAdminModal(prev => ({ ...prev, open: false }))}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Add Super Admin - {addAdminModal.school?.name}</DialogTitle>
+            <DialogDescription>
+              Create a new Super Admin user for this school.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>First Name</Label>
+                <Input
+                  value={addAdminModal.first_name}
+                  onChange={(e) => setAddAdminModal(prev => ({ ...prev, first_name: e.target.value }))}
+                  className="bg-slate-800 border-slate-600"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Last Name</Label>
+                <Input
+                  value={addAdminModal.last_name}
+                  onChange={(e) => setAddAdminModal(prev => ({ ...prev, last_name: e.target.value }))}
+                  className="bg-slate-800 border-slate-600"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={addAdminModal.email}
+                onChange={(e) => setAddAdminModal(prev => ({ ...prev, email: e.target.value }))}
+                className="bg-slate-800 border-slate-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <Input
+                type="password"
+                value={addAdminModal.password}
+                onChange={(e) => setAddAdminModal(prev => ({ ...prev, password: e.target.value }))}
+                className="bg-slate-800 border-slate-600"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddAdminModal(prev => ({ ...prev, open: false }))}>Cancel</Button>
+            <Button onClick={handleAddAdmin} disabled={addAdminModal.processing}>
+              {addAdminModal.processing ? "Creating..." : "Create Admin"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1493,15 +1432,15 @@ function SuperAdminDashboard() {
               Upload a new logo or remove the existing one.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-4 space-y-4">
             {/* Current Logo Preview */}
             <div className="flex justify-center">
               <div className="w-32 h-32 rounded-xl border-2 border-dashed border-slate-600 bg-slate-800 flex items-center justify-center overflow-hidden">
                 {editLogoModal.logoPreview ? (
-                  <img 
-                    src={editLogoModal.logoPreview} 
-                    alt="Logo preview" 
+                  <img
+                    src={editLogoModal.logoPreview}
+                    alt="Logo preview"
                     className="w-full h-full object-contain"
                   />
                 ) : (
@@ -1512,7 +1451,7 @@ function SuperAdminDashboard() {
                 )}
               </div>
             </div>
-            
+
             {/* Upload Options */}
             <div className="flex flex-col gap-3">
               <label className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg cursor-pointer transition-colors">
@@ -1525,7 +1464,7 @@ function SuperAdminDashboard() {
                   className="hidden"
                 />
               </label>
-              
+
               {editLogoModal.logoPreview && (
                 <Button
                   variant="outline"
@@ -1536,12 +1475,12 @@ function SuperAdminDashboard() {
                 </Button>
               )}
             </div>
-            
+
             <p className="text-xs text-slate-500 text-center">
               Supported formats: PNG, JPG, JPEG, SVG. Max size: 2MB.
             </p>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1578,7 +1517,7 @@ function SuperAdminDashboard() {
               School Details
             </DialogTitle>
           </DialogHeader>
-          
+
           {viewModal.school && (
             <div className="space-y-4 py-4">
               {/* Logo */}
@@ -1595,7 +1534,7 @@ function SuperAdminDashboard() {
                   )}
                 </div>
               </div>
-              
+
               {/* Info Grid */}
               <div className="space-y-3 bg-slate-800 rounded-lg p-4">
                 <div className="flex items-center justify-between">
@@ -1627,7 +1566,7 @@ function SuperAdminDashboard() {
               </div>
             </div>
           )}
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1652,7 +1591,7 @@ function SuperAdminDashboard() {
               Update school information. Slug changes may affect existing URLs.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             {/* Logo Upload */}
             <div className="flex flex-col items-center gap-3">
@@ -1669,7 +1608,7 @@ function SuperAdminDashboard() {
                 <input type="file" accept="image/*" onChange={handleEditModalLogoUpload} className="hidden" />
               </label>
             </div>
-            
+
             {/* Name */}
             <div className="space-y-1">
               <Label className="text-xs text-slate-300">School Name *</Label>
@@ -1679,7 +1618,7 @@ function SuperAdminDashboard() {
                 className="bg-slate-800 border-slate-600"
               />
             </div>
-            
+
             {/* Slug (read-only with warning) */}
             <div className="space-y-1">
               <Label className="text-xs text-slate-300">Slug</Label>
@@ -1693,7 +1632,7 @@ function SuperAdminDashboard() {
                 Slug cannot be changed after creation
               </p>
             </div>
-            
+
             {/* Type */}
             <div className="space-y-1">
               <Label className="text-xs text-slate-300">Institution Type</Label>
@@ -1709,7 +1648,7 @@ function SuperAdminDashboard() {
               </Select>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1749,7 +1688,7 @@ function SuperAdminDashboard() {
               This action is reversible. The school can be restored later.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-4">
             <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
               <p className="text-slate-200">
@@ -1763,7 +1702,7 @@ function SuperAdminDashboard() {
               </ul>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1795,7 +1734,7 @@ function SuperAdminDashboard() {
               This action is IRREVERSIBLE. All data will be permanently lost.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-4 space-y-4">
             <div className="bg-red-900/30 border border-red-700 rounded-lg p-4">
               <p className="text-red-200 font-semibold mb-2">⚠️ Warning: This cannot be undone!</p>
@@ -1811,7 +1750,7 @@ function SuperAdminDashboard() {
                 <li>• All grades and sections</li>
               </ul>
             </div>
-            
+
             <div className="space-y-2">
               <Label className="text-xs text-red-300">
                 Type the school slug <span className="font-mono bg-slate-800 px-1 rounded">{hardDeleteModal.school?.slug}</span> to confirm:
@@ -1824,7 +1763,7 @@ function SuperAdminDashboard() {
               />
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1857,7 +1796,7 @@ function SuperAdminDashboard() {
               Restore this school and make it active again.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-4">
             <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4">
               <p className="text-slate-200">
@@ -1870,7 +1809,7 @@ function SuperAdminDashboard() {
               </ul>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"

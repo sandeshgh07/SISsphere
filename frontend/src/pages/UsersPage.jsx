@@ -42,11 +42,11 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyRound, Trash2, UserCheck, UserX, Search, Plus, ShieldAlert, Edit, Users, BookOpen, Filter } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 // Phase 6.1: Remove Student from role options - Students created only from Students tab
 const ROLE_OPTIONS = [
-  { value: "school_admin", label: "School Admin" },
+  { value: "super_admin", label: "School Admin" },
   { value: "teacher", label: "Teacher" },
   { value: "accountant", label: "Accountant" },
   { value: "parent", label: "Parent" },
@@ -55,7 +55,7 @@ const ROLE_OPTIONS = [
 // All roles for display and multi-role editing (excluding superuser)
 const ALL_ROLE_OPTIONS = [
   { value: "principal", label: "Principal" },
-  { value: "school_admin", label: "School Admin" },
+  { value: "super_admin", label: "School Admin" },
   { value: "teacher", label: "Teacher" },
   { value: "accountant", label: "Accountant" },
   { value: "parent", label: "Parent" },
@@ -79,7 +79,7 @@ const GENDER_OPTIONS = [
 // ============================================
 // RBAC Configuration for Users Page
 // ============================================
-const ADMIN_ROLES = ["principal", "school_admin"];
+const ADMIN_ROLES = ["principal", "super_admin"];
 const CAN_CREATE_ROLES = ["principal"];
 
 export default function UsersPage() {
@@ -105,7 +105,7 @@ export default function UsersPage() {
     password: "",
     phone: "",
     gender: "",
-    role: "school_admin",
+    role: "super_admin",
     children_ids: [],
   });
 
@@ -127,7 +127,7 @@ export default function UsersPage() {
 
   const effectiveRole = getEffectiveRole();
   const isPrincipal = effectiveRole === "principal";
-  const isSchoolAdmin = effectiveRole === "school_admin";
+  const isSchoolAdmin = effectiveRole === "super_admin";
   const isAdminRole = ADMIN_ROLES.includes(effectiveRole);
   const canCreate = CAN_CREATE_ROLES.includes(effectiveRole);
   const canSeeActions = isAdminRole;
@@ -136,7 +136,7 @@ export default function UsersPage() {
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
-        setDebouncedSearch(searchQuery);
+      setDebouncedSearch(searchQuery);
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -153,7 +153,7 @@ export default function UsersPage() {
       const [usersRes, studentsRes, gradesRes] = await Promise.all([
         axios.get(`${API_BASE}/api/users`, { headers, params }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/students`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/grades`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_BASE}/api/academics/grades`, { headers }).catch(() => ({ data: [] })),
       ]);
       setList(usersRes.data || []);
       setStudents(studentsRes.data || []);
@@ -210,7 +210,7 @@ export default function UsersPage() {
         password: "",
         phone: "",
         gender: "",
-        role: "school_admin",
+        role: "super_admin",
         children_ids: [],
       });
       setShowCreateForm(false);
@@ -249,7 +249,7 @@ export default function UsersPage() {
     if (targetRole === "student" || targetRole === "parent") {
       return isPrincipal || isSchoolAdmin;
     }
-    if (targetRole === "teacher" || targetRole === "accountant" || targetRole === "school_admin") {
+    if (targetRole === "teacher" || targetRole === "accountant" || targetRole === "super_admin") {
       return isPrincipal;
     }
     return false;
@@ -440,13 +440,13 @@ export default function UsersPage() {
 
   // Format Date Helper
   const formatDate = (dateString) => {
-      if (!dateString) return "-";
-      try {
-          const date = new Date(dateString);
-          return date.toLocaleDateString();
-      } catch (e) {
-          return dateString;
-      }
+    if (!dateString) return "-";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString();
+    } catch (e) {
+      return dateString;
+    }
   };
 
   // Show loading state while auth is hydrating
@@ -664,52 +664,52 @@ export default function UsersPage() {
         {/* Users List Card */}
         <Card className="bg-slate-900 border-slate-700">
           <CardHeader>
-             <div className="flex flex-col space-y-4">
-                 <div className="flex items-center justify-between">
-                     <CardTitle className="text-slate-100">
-                      {isRestrictedRole ? "User Directory" : "Existing users"}
-                    </CardTitle>
-                    {/* Status Filters */}
-                    <Tabs value={statusFilter} onValueChange={setStatusFilter} className="hidden md:block">
-                        <TabsList className="bg-slate-950 border border-slate-700">
-                            <TabsTrigger value="all">All</TabsTrigger>
-                            <TabsTrigger value="active" className="data-[state=active]:bg-green-900/30 data-[state=active]:text-green-400">Active</TabsTrigger>
-                            <TabsTrigger value="inactive" className="data-[state=active]:bg-red-900/30 data-[state=active]:text-red-400">Inactive</TabsTrigger>
-                        </TabsList>
-                    </Tabs>
-                 </div>
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-slate-100">
+                  {isRestrictedRole ? "User Directory" : "Existing users"}
+                </CardTitle>
+                {/* Status Filters */}
+                <Tabs value={statusFilter} onValueChange={setStatusFilter} className="hidden md:block">
+                  <TabsList className="bg-slate-950 border border-slate-700">
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="active" className="data-[state=active]:bg-green-900/30 data-[state=active]:text-green-400">Active</TabsTrigger>
+                    <TabsTrigger value="inactive" className="data-[state=active]:bg-red-900/30 data-[state=active]:text-red-400">Inactive</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
 
-                 <div className="flex flex-col md:flex-row gap-3">
-                     {/* Search */}
-                     <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input
-                        placeholder="Search by name, email, phone..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                        data-testid="users-search-input"
-                      />
-                    </div>
-                    {/* Role Filter */}
-                    <div className="w-full md:w-48">
-                         <Select value={roleFilter} onValueChange={setRoleFilter}>
-                             <SelectTrigger className="bg-slate-950 border-slate-700 text-slate-100">
-                                 <div className="flex items-center gap-2">
-                                     <Filter className="w-4 h-4 text-slate-400" />
-                                     <SelectValue placeholder="All Roles" />
-                                 </div>
-                             </SelectTrigger>
-                             <SelectContent className="bg-slate-900 border-slate-700">
-                                 <SelectItem value="all">All Roles</SelectItem>
-                                 {ALL_ROLE_OPTIONS.map(opt => (
-                                     <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                 ))}
-                             </SelectContent>
-                         </Select>
-                    </div>
-                 </div>
-             </div>
+              <div className="flex flex-col md:flex-row gap-3">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Search by name, email, phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                    data-testid="users-search-input"
+                  />
+                </div>
+                {/* Role Filter */}
+                <div className="w-full md:w-48">
+                  <Select value={roleFilter} onValueChange={setRoleFilter}>
+                    <SelectTrigger className="bg-slate-950 border-slate-700 text-slate-100">
+                      <div className="flex items-center gap-2">
+                        <Filter className="w-4 h-4 text-slate-400" />
+                        <SelectValue placeholder="All Roles" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-700">
+                      <SelectItem value="all">All Roles</SelectItem>
+                      {ALL_ROLE_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -745,21 +745,21 @@ export default function UsersPage() {
                           data-testid={`users-table-row-${u.id}`}
                         >
                           <td className="py-3 pl-4">
-                              <div className="flex flex-col">
-                                  <span className="font-medium text-slate-100">{u.full_name}</span>
-                              </div>
+                            <div className="flex flex-col">
+                              <span className="font-medium text-slate-100">{u.full_name}</span>
+                            </div>
                           </td>
                           <td className="py-3">
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600">
-                                    {ROLE_LABELS[u.role] || u.role}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600">
+                                {ROLE_LABELS[u.role] || u.role}
+                              </Badge>
+                              {extraRoles.length > 0 && (
+                                <Badge variant="secondary" className="bg-slate-700 text-slate-300 text-[10px] px-1.5 h-5">
+                                  +{extraRoles.length}
                                 </Badge>
-                                {extraRoles.length > 0 && (
-                                    <Badge variant="secondary" className="bg-slate-700 text-slate-300 text-[10px] px-1.5 h-5">
-                                        +{extraRoles.length}
-                                    </Badge>
-                                )}
-                              </div>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3">
                             {u.is_active === false ? (
@@ -773,13 +773,13 @@ export default function UsersPage() {
                             )}
                           </td>
                           <td className="py-3">
-                              <div className="flex flex-col text-xs text-slate-400">
-                                  <span>{u.email}</span>
-                                  {u.phone && <span>{u.phone}</span>}
-                              </div>
+                            <div className="flex flex-col text-xs text-slate-400">
+                              <span>{u.email}</span>
+                              {u.phone && <span>{u.phone}</span>}
+                            </div>
                           </td>
                           <td className="py-3 text-slate-400 text-xs">
-                              {formatDate(u.created_at)}
+                            {formatDate(u.created_at)}
                           </td>
                           {canSeeActions && (
                             <td className="py-3">
@@ -864,11 +864,10 @@ export default function UsersPage() {
                                       <Button
                                         variant="ghost"
                                         size="sm"
-                                        className={`h-8 w-8 p-0 ${
-                                          u.is_active === false
+                                        className={`h-8 w-8 p-0 ${u.is_active === false
                                             ? "text-green-400 hover:text-green-300 hover:bg-green-900/30"
                                             : "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/30"
-                                        }`}
+                                          }`}
                                         onClick={() => handleToggleActive(u)}
                                         disabled={actionLoading}
                                       >
@@ -1060,16 +1059,16 @@ export default function UsersPage() {
                       .filter(g => g.is_active)
                       .sort((a, b) => (a.level || 0) - (b.level || 0))
                       .map((grade) => (
-                      <label key={grade.id} className="flex items-center gap-2 cursor-pointer">
-                        <Checkbox
-                          checked={selectedGrades.includes(grade.id)}
-                          onCheckedChange={() => toggleGrade(grade.id)}
-                        />
-                        <span className="text-sm text-slate-300">
-                          {grade.name}
-                        </span>
-                      </label>
-                    ))}
+                        <label key={grade.id} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={selectedGrades.includes(grade.id)}
+                            onCheckedChange={() => toggleGrade(grade.id)}
+                          />
+                          <span className="text-sm text-slate-300">
+                            {grade.name}
+                          </span>
+                        </label>
+                      ))}
                   </div>
                 )}
               </div>

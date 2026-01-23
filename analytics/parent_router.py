@@ -11,6 +11,9 @@ from finance.models import Fee
 from communication.models import Notice, NoticeStudent, NoticeGrade, NoticeSection, NoticeRole
 from typing import List
 from pydantic import BaseModel
+from audit.models import AuditLog
+from datetime import datetime, timezone
+import uuid
 
 router = APIRouter(prefix="/api/parent/dashboard", tags=["Parent Dashboard"])
 
@@ -38,6 +41,26 @@ def get_parent_dashboard_summary(
         return []
 
     students = db.query(Student).filter(Student.id.in_(student_ids)).all()
+    
+    # Pulse Logging: Log Dashboard View
+    try:
+        audit_log = AuditLog(
+            id=str(uuid.uuid4()),
+            actor_id=str(user.id),
+            action_type="VIEW",
+            table_name="dashboard_summary",
+            record_id=None,
+            timestamp=datetime.now(timezone.utc),
+            reason="Parent Dashboard Access",
+            hidden_for_user_ids=None
+        )
+        db.add(audit_log)
+        db.commit()
+    except Exception as e:
+        # Don't fail the request if logging fails, but log error
+        print(f"Audit log failed: {e}")
+        db.rollback()
+        
     results = []
 
     for student in students:

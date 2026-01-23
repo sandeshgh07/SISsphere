@@ -16,15 +16,16 @@ log = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 class Roles:
-    SUPER_ADMIN = "super_admin"
-    PRINCIPAL = "principal"
+    SUPER_USER = "superuser"
+    SUPER_ADMIN = "super_admin" # School SuperAdmin
     SCHOOL_ADMIN = "school_admin"
+    PRINCIPAL = "principal"
     ACCOUNTANT = "accountant"
     TEACHER = "teacher"
     PARENT = "parent"
     STUDENT = "student"
-    SECURITY_GUARD = "security_guard"
     BOARD = "board"
+    SECURITY_GUARD = "security_guard"
 
 def get_db():
     db = SessionLocal()
@@ -66,12 +67,12 @@ def get_current_user(
         superuser = school_models.User(
             id="superuser",
             email=username,
-            role=Roles.SUPER_ADMIN,
+            role=Roles.SUPER_USER,
             school_id="system", # Or None, but schema might require string
             is_active=True
         )
         set_actor_id("superuser")
-        superuser.current_role = Roles.SUPER_ADMIN
+        superuser.current_role = Roles.SUPER_USER
         return superuser
 
     user = db.query(school_models.User).filter(school_models.User.email == username).first()
@@ -126,7 +127,8 @@ def get_current_active_user(current_user: school_models.User = Depends(get_curre
 
     # Subscription "Lockdown" Check
     # Skip for SuperAdmin
-    if current_user.role == Roles.SUPER_ADMIN:
+    # Skip for SuperUser
+    if current_user.role == Roles.SUPER_USER:
         return current_user
 
     # Access school
@@ -165,13 +167,13 @@ class TenantAccess:
         self.school_id = user.school_id
 
     def verify_school_access(self, school_id: str):
-        if self.school_id != school_id and self.user.role != Roles.SUPER_ADMIN:
+        if self.school_id != school_id and self.user.role != Roles.SUPER_USER:
              raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
 
 def require_roles(*allowed_roles: str):
     def role_checker(user: school_models.User = Depends(get_current_active_user)):
         current_role = getattr(user, "current_role", user.role)
-        if current_role not in allowed_roles and current_role != Roles.SUPER_ADMIN:
+        if current_role not in allowed_roles and current_role != Roles.SUPER_USER:
              raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role {current_role} is not authorized. Required: {allowed_roles}"

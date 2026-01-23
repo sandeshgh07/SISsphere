@@ -14,6 +14,7 @@ class School(Base):
     is_active = Column(Boolean, default=True)
     logo_url = Column(String, nullable=True)
     country = Column(String, default="Nepal")
+    contact_request_id = Column(String, ForeignKey("contact_requests.id"), nullable=True)  # Link to SaaS lead
     subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.BASIC, nullable=False)
     subscription_expiry = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -40,6 +41,10 @@ class User(Base):
 
     school = relationship("School", back_populates="users")
     roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def school_country(self):
+        return self.school.country if self.school else None
 
     __table_args__ = (
         Index("idx_users_school_id_id", "school_id", "id"),

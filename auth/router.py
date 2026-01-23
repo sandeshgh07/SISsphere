@@ -5,7 +5,7 @@ from .jwt import create_access_token, decode_access_token
 from config import SUPERUSER_USERNAME, SUPERUSER_PASSWORD
 from database import SessionLocal
 from schools.models import User, School, UserRole
-from auth.dependencies import get_current_user, get_db
+from auth.dependencies import get_current_user, get_db, Roles
 from passlib.context import CryptContext
 import os
 import hmac
@@ -14,7 +14,7 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 @router.post("/auth/login")
-async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     # 1. Env-based Superuser Check (Legacy/Backup)
     # Only allow if NO school_id is targeted (Admin Portal context)
     if not credentials.school_id:
@@ -50,7 +50,7 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         role_names = [r.role_name for r in roles]
         if user.role: role_names.append(user.role)
 
-        if "SUPER_ADMIN" not in role_names and "superuser" not in role_names:
+        if Roles.SUPER_USER not in role_names:
              raise HTTPException(status_code=403, detail="Please login via your school's dedicated portal.")
 
     # Fetch school to add subscription info
@@ -74,7 +74,9 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
             "must_change_password": user.must_change_password,
             "subscription_expiry": expiry_str,
             "subscription_tier": tier,
-            "school_country": country
+            "school_country": country,
+            "school_name": school.name if school else "Nepsis",
+            "school_logo_url": school.logo_url if school else None
         },
         expires_minutes=60
     )
@@ -86,10 +88,10 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     }
 
 @router.post("/auth/admin/login")
-async def admin_login(credentials: LoginRequest, db: Session = Depends(get_db)):
+def admin_login(credentials: LoginRequest, db: Session = Depends(get_db)):
     # Force no school_id context to trigger Admin checks
     credentials.school_id = None
-    return await login(credentials, db)
+    return login(credentials, db)
 
 @router.post("/auth/finalize-setup")
 def finalize_setup(
@@ -167,7 +169,8 @@ def get_current_superuser(authorization: str = Header(...)):
     token = authorization[7:]
     payload = decode_access_token(token)
 
-    if payload.get("role") != "superuser":
+    # Accept both lowercase and uppercase role names for superuser
+    if payload.get("role") not in ["superuser", "SUPER_USER", Roles.SUPER_USER]:
         raise HTTPException(status_code=403, detail="insufficient permissions")
 
     return payload

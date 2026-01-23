@@ -8,7 +8,7 @@ import { Loader2 } from 'lucide-react';
 const NoticeFeed = () => {
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('ALL'); // ALL, ACADEMIC, FINANCE, URGENT
+  const [filter, setFilter] = useState('ALL'); // ALL, CRITICAL, IMPORTANT, NORMAL
 
   useEffect(() => {
     fetchNotices();
@@ -16,10 +16,13 @@ const NoticeFeed = () => {
 
   const fetchNotices = async () => {
     try {
-      const response = await api.get('/api/notices/feed');
+      console.log("Fetching notices...");
+      const response = await api.get('/notices/feed');
+      console.log("Notices fetched:", response.data);
       setNotices(response.data);
     } catch (error) {
       console.error("Failed to fetch notices", error);
+      // toast.error("Could not load notices"); // Assuming toast is available via props or context, or import sonner
     } finally {
       setLoading(false);
     }
@@ -27,23 +30,17 @@ const NoticeFeed = () => {
 
   const filteredNotices = notices.filter(n => {
     if (filter === 'ALL') return true;
-    return n.type === filter;
+    return n.priority === filter;
   });
 
-  const getBadgeVariant = (type) => {
-    switch (type) {
-      case 'URGENT': return 'destructive';
-      case 'FINANCE': return 'default';
-      case 'ACADEMIC': return 'secondary';
+  const getBadgeVariant = (priority) => {
+    switch (priority) {
+      case 'CRITICAL': return 'destructive';
+      case 'IMPORTANT': return 'default'; // or something distinct
+      case 'NORMAL': return 'secondary';
       default: return 'outline';
     }
   };
-
-  // Custom class for 'New' badge or if we want to override colors dynamically
-  const getBadgeClass = (type) => {
-     if (type === 'URGENT' || type === 'NEW') return "bg-nepsis-alert hover:bg-nepsis-alert/90 text-white border-0";
-     return "";
-  }
 
   if (loading) return <div className="flex justify-center p-4"><Loader2 className="animate-spin" /></div>;
 
@@ -51,9 +48,9 @@ const NoticeFeed = () => {
     <div className="space-y-4 max-w-md mx-auto">
       <div className="flex space-x-2 overflow-x-auto pb-2">
         <Button variant={filter === 'ALL' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('ALL')}>All</Button>
-        <Button variant={filter === 'ACADEMIC' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('ACADEMIC')}>Academic</Button>
-        <Button variant={filter === 'FINANCE' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('FINANCE')}>Finance</Button>
-        <Button variant={filter === 'URGENT' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('URGENT')}>Urgent</Button>
+        <Button variant={filter === 'CRITICAL' ? 'destructive' : 'outline'} size="sm" onClick={() => setFilter('CRITICAL')}>Critical</Button>
+        <Button variant={filter === 'IMPORTANT' ? 'secondary' : 'outline'} size="sm" onClick={() => setFilter('IMPORTANT')}>Important</Button>
+        <Button variant={filter === 'NORMAL' ? 'secondary' : 'outline'} size="sm" onClick={() => setFilter('NORMAL')}>Normal</Button>
       </div>
 
       <div className="space-y-3">
@@ -63,13 +60,13 @@ const NoticeFeed = () => {
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                   {notice.title}
-                   {/* Mock logic for 'New' - ideally based on read status or date */}
-                   {new Date(notice.created_at) > new Date(Date.now() - 86400000) && (
-                      <Badge className="bg-nepsis-alert hover:bg-nepsis-alert/90 text-white border-0 text-[10px] px-1.5 py-0 h-5">NEW</Badge>
-                   )}
+                  {notice.title}
+                  {/* Mock logic for 'New' - ideally based on read status or date */}
+                  {new Date(notice.created_at) > new Date(Date.now() - 86400000) && (
+                    <Badge className="bg-nepsis-alert hover:bg-nepsis-alert/90 text-white border-0 text-[10px] px-1.5 py-0 h-5">NEW</Badge>
+                  )}
                 </CardTitle>
-                <Badge variant={getBadgeVariant(notice.type)}>{notice.type}</Badge>
+                <Badge variant={getBadgeVariant(notice.priority)}>{notice.priority}</Badge>
               </div>
               <p className="text-xs text-muted-foreground">{new Date(notice.created_at).toLocaleDateString()}</p>
             </CardHeader>

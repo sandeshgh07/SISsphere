@@ -55,7 +55,7 @@ class AttendanceTrend(BaseModel):
 def mark_attendance(
     attendance_data: AttendanceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.TEACHER, Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN)),
+    current_user: User = Depends(require_roles(Roles.TEACHER, Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
     tenant_access: TenantAccess = Depends(TenantAccess)
 ):
     # If teacher, verify assignment
@@ -185,7 +185,7 @@ def get_class_stats(
     section_id: str,
     date: date,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN)),
+    current_user: User = Depends(require_roles(Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
     tenant_access: TenantAccess = Depends(TenantAccess)
 ):
     # Parents can see class percentage, but NOT individual attendance.
@@ -232,7 +232,7 @@ def get_class_stats(
 def get_attendance_trends(
     student_id: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.STUDENT, Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN)),
+    current_user: User = Depends(require_roles(Roles.STUDENT, Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
     tenant_access: TenantAccess = Depends(TenantAccess)
 ):
     target_student_id = None

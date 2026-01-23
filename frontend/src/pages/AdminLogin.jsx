@@ -23,9 +23,9 @@ const AdminLogin = () => {
 
       // Check if user is actually a superuser or similar
       if (userData.role !== 'superuser' && userData.role !== 'SUPER_ADMIN') {
-         // Should be caught by backend 403, but just in case
-         toast.error("Access restricted to Administrators.");
-         return;
+        // Should be caught by backend 403, but just in case
+        toast.error("Access restricted to Administrators.");
+        return;
       }
 
       if (userData.require_password_change) {
@@ -33,15 +33,15 @@ const AdminLogin = () => {
         navigate('/reset-password');
       } else {
         toast.success("Welcome, Administrator.");
-        navigate('/dashboard'); // or /superadmin if that exists
+        navigate('/platform-admin');
       }
     } catch (error) {
-        const detail = error.response?.data?.detail;
-        if (detail) {
-             toast.error(detail);
-        } else {
-             toast.error("Invalid credentials or restricted access.");
-        }
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        toast.error(detail);
+      } else {
+        toast.error("Invalid credentials or restricted access.");
+      }
     } finally {
       setLoading(false);
     }
@@ -62,36 +62,36 @@ const AdminLogin = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-200">Email</label>
-                <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="bg-slate-800 border-slate-700 text-slate-100"
-                    placeholder="admin@classa.com"
-                />
+              <label className="text-sm font-medium text-slate-200">Email</label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="bg-slate-800 border-slate-700 text-slate-100"
+                placeholder="admin@classa.com"
+              />
             </div>
             <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-200">Password</label>
-                <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="bg-slate-800 border-slate-700 text-slate-100"
-                />
+              <label className="text-sm font-medium text-slate-200">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="bg-slate-800 border-slate-700 text-slate-100"
+              />
             </div>
             <Button type="submit" className="w-full bg-red-700 hover:bg-red-800 text-white" disabled={loading}>
-                {loading ? 'Authenticating...' : 'Enter Console'}
+              {loading ? 'Authenticating...' : 'Enter Console'}
             </Button>
           </form>
           <div className="mt-6 text-center">
             <button
-                onClick={() => navigate('/find-school')}
-                className="text-sm text-slate-500 hover:text-slate-400"
+              onClick={() => navigate('/find-school')}
+              className="text-sm text-slate-500 hover:text-slate-400"
             >
-                Back to School Discovery
+              Back to School Discovery
             </button>
           </div>
         </CardContent>

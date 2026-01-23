@@ -66,7 +66,7 @@ def check_overdue_installments(db: Session):
                 # Just picking the first admin of the school for author_id is a hack but works for now.
                 admin = db.query(school_models.User).filter(
                     school_models.User.school_id == plan.school_id,
-                    school_models.User.role == "school_admin"
+                    school_models.User.role == "super_admin"
                 ).first()
 
                 if admin:

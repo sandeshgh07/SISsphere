@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 export default function ChangePasswordPage() {
   const navigate = useNavigate();
@@ -61,13 +61,13 @@ export default function ChangePasswordPage() {
       }
 
       toast({ title: "Success", description: "Password changed successfully!" });
-      
+
       // Redirect to appropriate dashboard
       const role = user?.active_role || user?.role;
       if (role === "superuser") {
-        navigate("/superadmin");
+        navigate("/platform-admin");
       } else {
-        navigate("/school/overview");
+        navigate("/dashboard");
       }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || "Failed to change password";

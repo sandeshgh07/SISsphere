@@ -17,6 +17,7 @@ from academics.router import router as academics_router
 from students.router import router as students_router
 from finance.router import router as finance_router
 from finance.payment_router import router as payment_router
+from finance.fee_templates_router import router as fee_templates_router
 from admin.router import router as admin_router
 from admin.bulk_router import router as bulk_admin_router
 from attendance.router import router as attendance_router
@@ -26,9 +27,13 @@ from communication.router import router as communication_router
 from analytics.router import router as analytics_router
 from analytics.parent_router import router as parent_analytics_router
 from analytics.board_router import router as board_router
+from analytics.principal_router import router as principal_router
 from students.admission_router import router as admission_router
 from attendance.gate_router import router as gate_router
 from schools.governance_router import router as governance_router
+from schools.governance_router import router as governance_router
+from schools.handover_router import router as handover_router
+from dashboard.router import router as dashboard_router
 
 from database import engine, Base, register_listeners, SessionLocal
 import os
@@ -51,9 +56,25 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from core.limiter import limiter
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import json
+    # Log the detailed errors
+    error_details = exc.errors()
+    print(f"❌ VALIDATION ERROR at {request.url}:")
+    print(json.dumps(error_details, indent=2, default=str))
+    
+    return JSONResponse(
+        status_code=422,
+        content={"detail": json.loads(json.dumps(error_details, default=str)), "body": str(exc)},
+    )
 
 # Background Task for Finance
 async def run_finance_worker():
@@ -107,6 +128,7 @@ app.include_router(academics_router, prefix="/api")
 app.include_router(students_router, prefix="/api")
 app.include_router(finance_router, prefix="/api")
 app.include_router(payment_router, prefix="/api")
+app.include_router(fee_templates_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(bulk_admin_router, prefix="/api")
 app.include_router(attendance_router, prefix="/api")
@@ -120,9 +142,12 @@ app.include_router(communication_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(parent_analytics_router)
 app.include_router(board_router)
+app.include_router(principal_router)
 app.include_router(admission_router)
 app.include_router(gate_router)
 app.include_router(governance_router)
+app.include_router(handover_router)
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
 
 @app.get("/health")
 async def health_check():

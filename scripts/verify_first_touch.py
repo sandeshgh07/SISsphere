@@ -46,7 +46,7 @@ admin = school_models.User(
     hashed_password=pwd_context.hash("admin123"),
     first_name="Admin",
     last_name="User",
-    role=Roles.SCHOOL_ADMIN,
+    role=Roles.SUPER_ADMIN,
     school_id=school.id
 )
 db.add(admin)

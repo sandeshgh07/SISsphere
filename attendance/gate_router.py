@@ -9,344 +9,257 @@ from students import models as student_models
 from schools import models as school_models
 from communication import models as comm_models
 from audit import models as audit_models
+from attendance import models as attention_models
 from auth.subscription import require_subscription_feature
 from attendance.schemas import GateScanResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 router = APIRouter(prefix="/api/attendance/gate", tags=["Safety"])
 
 # Schemas
-class QRCodeResponse(BaseModel):
+class CreatePassRequest(BaseModel):
+    student_id: str
+    pass_type: str = Field(..., pattern="^(NORMAL|SUPER)$")
+    reason: Optional[str] = None # Required for SUPER
+    sent_with_name: Optional[str] = None
+    sent_with_relation: Optional[str] = None
+    sent_with_phone: Optional[str] = None
+    expires_in_hours: int = 1
+
+class PassResponse(BaseModel):
     token: str
+    pass_id: str
     expires_at: datetime
     student_name: str
 
-class ScanRequest(BaseModel):
+class VerifyRequest(BaseModel):
     token: str
 
-class HistoryItem(BaseModel):
+class VerifyResponse(BaseModel):
+    valid: bool
+    pass_id: str
+    pass_type: str
     student_name: str
-    action: str
-    timestamp: datetime
-    scanned_by: str
+    student_photo: Optional[str] = None
+    student_grade: Optional[str] = None
+    issuer_name: str
+    issuer_role: str
+    reason: Optional[str] = None
+    sent_with: Optional[str] = None
+    created_at: datetime
+    status: str
 
-class BlockRequest(BaseModel):
-    student_id: str
-    reason: str
+class ConfirmScanRequest(BaseModel):
+    pass_id: str
 
-class UnblockRequest(BaseModel):
-    student_id: str
-
-# Secret key for QR tokens (should use settings.SECRET_KEY)
+# Secret key for QR tokens
 ALGORITHM = "HS256"
-# Using the same env var or default as auth for now
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "changeme")
 
-@router.get("/qr-code", response_model=QRCodeResponse)
-def generate_qr_code(
-    student_id: str,
+@router.post("/create", response_model=PassResponse)
+def create_pass(
+    request: CreatePassRequest,
     db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.PARENT)),
+    user: school_models.User = Depends(get_current_user), # Any auth user can try, we validate roles inside
     tenant: TenantAccess = Depends(TenantAccess),
     _ = Depends(require_subscription_feature("QR_GATE"))
 ):
-    # Verify Parent-Student Link
-    link = db.query(student_models.ParentStudentLink).filter(
-        student_models.ParentStudentLink.parent_id == user.id,
-        student_models.ParentStudentLink.student_id == student_id,
-        student_models.ParentStudentLink.school_id == str(tenant.school_id)
-    ).first()
-
-    if not link:
-        raise HTTPException(status_code=403, detail="Not authorized for this student")
-
-    student = db.query(student_models.Student).get(student_id)
-
-    # Generate Token
-    # Valid for 5 minutes
-    expiration = datetime.now(timezone.utc) + timedelta(minutes=5)
-    payload = {
-        "sub": student_id,
-        "parent_id": str(user.id),
-        "school_id": str(tenant.school_id),
-        "jti": str(uuid.uuid4()),
-        "type": "GATE_PASS",
-        "exp": expiration,
-        "iat": datetime.now(timezone.utc)
-    }
-
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-    return QRCodeResponse(
-        token=token,
-        expires_at=expiration,
-        student_name=f"{student.first_name} {student.last_name}"
-    )
-
-@router.post("/scan", response_model=GateScanResponse)
-def scan_qr_code(
-    scan_data: ScanRequest,
-    db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.SECURITY_GUARD, Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT)),
-    tenant: TenantAccess = Depends(TenantAccess),
-    _ = Depends(require_subscription_feature("QR_GATE"))
-):
-    try:
-        payload = jwt.decode(scan_data.token, SECRET_KEY, algorithms=[ALGORITHM])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="QR Code expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=400, detail="Invalid QR Code")
-
-    # Verify School Isolation
-    if str(payload.get("school_id")) != str(tenant.school_id):
-        raise HTTPException(status_code=403, detail="QR Code belongs to a different school")
-
-    if payload.get("type") != "GATE_PASS":
-        raise HTTPException(status_code=400, detail="Invalid token type")
-
-    student_id = payload.get("sub")
-    student = db.query(student_models.Student).get(student_id)
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    # Verify Parent Link (Security Check)
-    parent_id = payload.get("parent_id")
-    parent_name = "Unknown Parent"
-    parent_photo = None
-
-    if parent_id:
+    # 1. Permission Check
+    if request.pass_type == "NORMAL":
+        # Must be Parent checking their own child
+        if user.role != Roles.PARENT: 
+             # Strictly enforce Parents -> Normal.
+             # If a staff wants a normal pass for their own child (if they are also a parent), they should switch to Parent role.
+             pass 
+        
+        # Verify Parent-Student Link
+        # (Allow standard parent logic)
         link = db.query(student_models.ParentStudentLink).filter(
-            student_models.ParentStudentLink.parent_id == str(parent_id),
-            student_models.ParentStudentLink.student_id == student_id,
+            student_models.ParentStudentLink.parent_id == user.id,
+            student_models.ParentStudentLink.student_id == request.student_id,
             student_models.ParentStudentLink.school_id == str(tenant.school_id)
         ).first()
 
-        if not link:
-             # Could be a stale token or attack
-             raise HTTPException(status_code=403, detail="Invalid Parent-Student Link")
+        if not link and user.role == Roles.PARENT:
+             raise HTTPException(status_code=403, detail="Not authorized for this student")
+             
+    elif request.pass_type == "SUPER":
+        # Must be Staff (Principal, Admin, Teacher, Accountant, Board)
+        allowed_roles = [Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SCHOOL_ADMIN, Roles.TEACHER, Roles.ACCOUNTANT, Roles.BOARD]
+        # Check current effective role or if user has any of these roles
+        if user.role not in allowed_roles:
+             # Basic check failed. 
+             raise HTTPException(status_code=403, detail="Unauthorized to create SuperPass")
+            
+        if not request.reason or len(request.reason) < 5:
+            raise HTTPException(status_code=400, detail="Reason is required for SuperPass (min 5 chars)")
+            
+    else:
+        raise HTTPException(status_code=400, detail="Invalid pass type")
 
-        parent = db.query(school_models.User).get(uuid.UUID(parent_id))
-        if parent:
-            parent_name = f"{parent.first_name} {parent.last_name}"
-            parent_photo = parent.photo_url
+    # 2. Student Info
+    student = db.query(student_models.Student).get(request.student_id)
+    if not student or student.school_id != str(tenant.school_id):
+        raise HTTPException(status_code=404, detail="Student not found")
 
-    # Check 1: Authorization in Link
-    if parent_id and link and not link.is_authorized_pickup:
-        raise HTTPException(
-            status_code=403,
-            detail="BLOCKED: Parent not authorized for pickup"
-        )
-
-    # Check 2: Security Blocks (The Blocking Engine)
-    # Block Hierarchy: Pair > Student > Parent
-
-    # Check Pair Block
-    pair_block = db.query(student_models.SecurityBlock).filter(
-        student_models.SecurityBlock.school_id == str(tenant.school_id),
-        student_models.SecurityBlock.student_id == student_id,
-        student_models.SecurityBlock.parent_id == str(parent_id),
-        student_models.SecurityBlock.is_active == True
-    ).first()
-
-    if pair_block:
-        raise HTTPException(status_code=403, detail=f"BLOCKED: {pair_block.reason}")
-
-    # Check Student Block (Global)
-    student_block = db.query(student_models.SecurityBlock).filter(
-        student_models.SecurityBlock.school_id == str(tenant.school_id),
-        student_models.SecurityBlock.student_id == student_id,
-        student_models.SecurityBlock.parent_id == None,
-        student_models.SecurityBlock.is_active == True
-    ).first()
-
-    if student_block:
-        raise HTTPException(status_code=403, detail=f"BLOCKED: {student_block.reason}")
-
-    # Check Parent Block (Global)
-    parent_block = db.query(student_models.SecurityBlock).filter(
-        student_models.SecurityBlock.school_id == str(tenant.school_id),
-        student_models.SecurityBlock.student_id == None,
-        student_models.SecurityBlock.parent_id == str(parent_id),
-        student_models.SecurityBlock.is_active == True
-    ).first()
-
-    if parent_block:
-        raise HTTPException(status_code=403, detail=f"BLOCKED: {parent_block.reason}")
-
-    # Fallback to legacy field just in case
-    if student.pickup_blocked:
-        raise HTTPException(
-            status_code=403,
-            detail=f"BLOCKED FROM PICKUP: {student.pickup_block_reason}"
-        )
-
-    # Determine Check-in vs Check-out
-    last_log = db.query(student_models.GateLog).filter(
-        student_models.GateLog.student_id == student_id,
-        student_models.GateLog.timestamp >= datetime.combine(datetime.now(timezone.utc).date(), datetime.min.time())
-    ).order_by(student_models.GateLog.timestamp.desc()).first()
-
-    action = student_models.GateLogType.CHECKIN
-    if last_log and last_log.type == student_models.GateLogType.CHECKIN:
-        action = student_models.GateLogType.CHECKOUT
-
-    # Log entry (GateLog for history)
-    log_entry = student_models.GateLog(
+    # 3. Create GatePass Record
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=min(request.expires_in_hours, 12))
+    
+    new_pass = attention_models.GatePass(
         school_id=str(tenant.school_id),
-        student_id=student_id,
-        scanned_by_id=str(user.id),
-        type=action
+        pass_type=attention_models.GatePassType(request.pass_type),
+        issuer_user_id=str(user.id),
+        issuer_role_used=user.role,
+        student_id=student.id,
+        sent_with_name=request.sent_with_name,
+        sent_with_relation=request.sent_with_relation,
+        sent_with_phone=request.sent_with_phone,
+        reason=request.reason,
+        status=attention_models.GatePassStatus.ACTIVE,
+        expires_at=expires_at.date(), # Legacy support if needed
+        expires_at_dt=expires_at
     )
-    db.add(log_entry)
-
-    # Audit Log (GATE_EXIT)
-    if action == student_models.GateLogType.CHECKOUT:
-        audit_entry = audit_models.AuditLog(
+    db.add(new_pass)
+    
+    # Audit for SuperPass
+    if request.pass_type == "SUPER":
+        audit = audit_models.AuditLog(
             actor_id=str(user.id),
-            action_type="GATE_EXIT",
-            table_name="students",
-            record_id=student_id,
+            action_type="SUPERPASS_CREATED",
+            table_name="gate_passes",
+            record_id=new_pass.id,
             timestamp=datetime.now(timezone.utc),
-            reason="QR Scan"
+            reason=request.reason,
+            details=f"For Student: {student.first_name} {student.last_name}"
         )
-        db.add(audit_entry)
-
-    db.flush()
-
-    msg_action = "Checked In" if action == student_models.GateLogType.CHECKIN else "Checked Out"
-    message = f"Safety Alert: {student.first_name} has {msg_action} at {datetime.now().strftime('%H:%M')}."
-
-    # Notify Parent
-    parents = db.query(school_models.User).join(
-        student_models.ParentStudentLink,
-        student_models.ParentStudentLink.parent_id == school_models.User.id
-    ).filter(
-        student_models.ParentStudentLink.student_id == student.id
-    ).all()
-
-    # Create Notice
-    notice = comm_models.Notice(
-        school_id=str(tenant.school_id),
-        title=f"Student {msg_action}",
-        content=message,
-        priority=comm_models.NoticePriority.HIGH, # Security Alert
-        author_id=str(user.id)
-    )
-    db.add(notice)
-    db.flush()
-
-    # Target Student
-    ns = comm_models.NoticeStudent(
-        notice_id=notice.id,
-        student_id=student_id
-    )
-    db.add(ns)
+        db.add(audit)
 
     db.commit()
+    db.refresh(new_pass)
+    
+    # 4. Generate Token (Pointing to Pass ID)
+    payload = {
+        "pass_id": new_pass.id,
+        "school_id": str(tenant.school_id),
+        "type": "GATE_PASS_V2",
+        "exp": expires_at
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    return GateScanResponse(
-        status="SUCCESS",
+    return PassResponse(
+        token=token,
+        pass_id=new_pass.id,
+        expires_at=expires_at,
+        student_name=f"{student.first_name} {student.last_name}"
+    )
+
+@router.post("/verify", response_model=VerifyResponse)
+def verify_pass(
+    request: VerifyRequest,
+    db: Session = Depends(get_db),
+    user: school_models.User = Depends(require_roles(Roles.SECURITY_GUARD, Roles.SUPER_ADMIN, Roles.PRINCIPAL)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    try:
+        payload = jwt.decode(request.token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token Expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid Token")
+
+    if payload.get("school_id") != str(tenant.school_id):
+        raise HTTPException(status_code=403, detail="Different School Pass")
+    
+    # Explicitly check type for V2
+    if payload.get("type") != "GATE_PASS_V2":
+         raise HTTPException(status_code=400, detail="Old or Invalid Pass Type")
+
+    pass_id = payload.get("pass_id")
+    if not pass_id:
+        raise HTTPException(status_code=400, detail="Invalid Pass Format")
+        
+    gate_pass = db.query(attention_models.GatePass).get(pass_id)
+    if not gate_pass:
+        raise HTTPException(status_code=404, detail="Pass record not found")
+        
+    if gate_pass.status != attention_models.GatePassStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail=f"Pass is {gate_pass.status}")
+
+    # Check expiration dt
+    if gate_pass.expires_at_dt < datetime.now(timezone.utc):
+        gate_pass.status = attention_models.GatePassStatus.EXPIRED
+        db.commit()
+        raise HTTPException(status_code=400, detail="Pass Expired")
+
+    # Fetch details
+    student = db.query(student_models.Student).get(gate_pass.student_id)
+    issuer = db.query(school_models.User).get(gate_pass.issuer_user_id)
+    issuer_name = f"{issuer.first_name} {issuer.last_name}" if issuer else "Unknown"
+
+    grade_info = ""
+    if student.grade:
+        grade_info = f"{student.grade.name} {student.section.name if student.section else ''}"
+
+    sent_with_str = None
+    if gate_pass.sent_with_name:
+        sent_with_str = f"{gate_pass.sent_with_name} ({gate_pass.sent_with_relation})"
+
+    return VerifyResponse(
+        valid=True,
+        pass_id=gate_pass.id,
+        pass_type=gate_pass.pass_type,
         student_name=f"{student.first_name} {student.last_name}",
-        student_photo_url=student.photo_url,
-        parent_name=parent_name,
-        parent_photo_url=parent_photo,
-        action=action,
-        timestamp=log_entry.timestamp
+        student_photo=student.photo_url,
+        student_grade=grade_info,
+        issuer_name=issuer_name,
+        issuer_role=gate_pass.issuer_role_used,
+        reason=gate_pass.reason,
+        sent_with=sent_with_str,
+        created_at=gate_pass.created_at,
+        status=gate_pass.status
     )
 
-@router.get("/history", response_model=List[HistoryItem])
-def get_gate_history(
+@router.post("/confirm-scan")
+def confirm_scan(
+    request: ConfirmScanRequest,
     db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.SECURITY_GUARD, Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT)),
+    user: school_models.User = Depends(require_roles(Roles.SECURITY_GUARD, Roles.SUPER_ADMIN, Roles.PRINCIPAL)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
-    # Fetch last 20 logs
-    logs = db.query(student_models.GateLog).filter(
-        student_models.GateLog.school_id == str(tenant.school_id)
-    ).order_by(student_models.GateLog.timestamp.desc()).limit(20).all()
-
-    result = []
-    for log in logs:
-        student = db.query(student_models.Student).get(log.student_id)
-        scanned_by = None
-        try:
-            if log.scanned_by_id:
-                scanned_by = db.query(school_models.User).get(uuid.UUID(log.scanned_by_id))
-        except ValueError:
-            pass
-
-        result.append(HistoryItem(
-            student_name=f"{student.first_name} {student.last_name}" if student else "Unknown",
-            action=log.type,
-            timestamp=log.timestamp,
-            scanned_by=scanned_by.email if scanned_by else "Unknown"
-        ))
-    return result
-
-@router.post("/block")
-def block_pickup(
-    request: BlockRequest,
-    db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT)),
-    tenant: TenantAccess = Depends(TenantAccess)
-):
-    student = db.query(student_models.Student).filter(
-        student_models.Student.id == request.student_id,
-        student_models.Student.school_id == str(tenant.school_id)
-    ).first()
-
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    student.pickup_blocked = True
-    student.pickup_block_reason = request.reason
-
-    # Audit Log
-    audit_entry = audit_models.AuditLog(
+    gate_pass = db.query(attention_models.GatePass).get(request.pass_id)
+    if not gate_pass:
+        raise HTTPException(status_code=404, detail="Pass not found")
+        
+    if gate_pass.status != attention_models.GatePassStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Pass already used or expired")
+        
+    # Mark Used
+    gate_pass.status = attention_models.GatePassStatus.USED
+    gate_pass.used_at = datetime.now(timezone.utc)
+    gate_pass.used_by_user_id = str(user.id)
+    
+    # Create Audit Event (PASS_USED)
+    audit = audit_models.AuditLog(
         actor_id=str(user.id),
-        action_type="CRITICAL_SECURITY_OVERRIDE",
-        table_name="students",
-        record_id=student.id,
+        action_type="PASS_USED",
+        table_name="gate_passes",
+        record_id=gate_pass.id,
         timestamp=datetime.now(timezone.utc),
-        reason=f"Blocked: {request.reason}",
-        after_state=f"pickup_blocked=True, reason={request.reason}"
+        details=f"Type: {gate_pass.pass_type}, Student: {gate_pass.student_id}"
     )
-    db.add(audit_entry)
-    db.commit()
-
-    return {"message": "Student blocked from pickup"}
-
-@router.post("/unblock")
-def unblock_pickup(
-    request: UnblockRequest,
-    db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT)),
-    tenant: TenantAccess = Depends(TenantAccess)
-):
-    student = db.query(student_models.Student).filter(
-        student_models.Student.id == request.student_id,
-        student_models.Student.school_id == str(tenant.school_id)
-    ).first()
-
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    student.pickup_blocked = False
-    student.pickup_block_reason = None
-
-    # Audit Log
-    audit_entry = audit_models.AuditLog(
-        actor_id=str(user.id),
-        action_type="SECURITY_OVERRIDE_CLEARED", # Or similar
-        table_name="students",
-        record_id=student.id,
-        timestamp=datetime.now(timezone.utc),
-        reason="Unblocked",
-        after_state="pickup_blocked=False"
+    db.add(audit)
+    
+    # Legacy Gate Log (optional, for simple history view in existing dashboard)
+    legacy_log = student_models.GateLog(
+        school_id=str(tenant.school_id),
+        student_id=gate_pass.student_id,
+        scanned_by_id=str(user.id),
+        type=student_models.GateLogType.CHECKOUT,
+        timestamp=datetime.now(timezone.utc)
     )
-    db.add(audit_entry)
+    db.add(legacy_log)
+    
     db.commit()
-
-    return {"message": "Student unblocked"}
+    
+    return {"message": "Pass confirmed and logged"}

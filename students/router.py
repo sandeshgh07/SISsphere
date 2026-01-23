@@ -8,8 +8,9 @@ from students import models as student_models
 from audit.listeners import set_reason
 from pydantic import BaseModel, Field
 from datetime import datetime
+from auth.jwt import create_access_token
 
-router = APIRouter(prefix="/api/students", tags=["students"])
+router = APIRouter(prefix="/students", tags=["students"])
 
 class StudentUpdate(BaseModel):
     grade_id: Optional[str] = None
@@ -17,6 +18,20 @@ class StudentUpdate(BaseModel):
     status: Optional[str] = None
     parent_ids: Optional[List[str]] = None
     reason: Optional[str] = None
+
+class StudentCreate(BaseModel):
+    first_name: str
+    last_name: str
+    grade_id: Optional[str] = None
+    section_id: Optional[str] = None
+    roll_no: Optional[str] = None
+    email: Optional[str] = None
+    login_email: Optional[str] = None
+    phone: Optional[str] = None
+    create_login: bool = False
+    login_password: Optional[str] = None
+    gender: Optional[str] = None
+    address: Optional[str] = None
 
 class StudentResponse(BaseModel):
     id: str
@@ -31,14 +46,69 @@ class StudentResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/", response_model=List[StudentResponse])
+@router.post("", response_model=StudentResponse)
+def create_student(
+    student_in: StudentCreate,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    # Check manual roll number or auto-generate
+    if not student_in.roll_no:
+        count = db.query(student_models.Student).filter(student_models.Student.school_id == str(tenant.school_id)).count()
+        student_in.roll_no = f"R{datetime.now().year}-{count + 1:04d}"
+
+    # Check email uniqueness if provided
+    if student_in.email:
+        existing = db.query(student_models.Student).filter(
+            student_models.Student.email == student_in.email,
+            student_models.Student.school_id == str(tenant.school_id)
+        ).first()
+        if existing:
+            # For now just warn or allow? Better to allow unique email per school or globally?
+            # Assuming globally unique email for login, but student record email might just be contact.
+            pass
+
+    new_student = student_models.Student(
+        first_name=student_in.first_name,
+        last_name=student_in.last_name,
+        roll_number=student_in.roll_no,
+        email=student_in.email,
+        grade_id=student_in.grade_id,
+        section_id=student_in.section_id,
+        address=student_in.address,
+        school_id=str(tenant.school_id),
+        is_active=True
+    )
+    db.add(new_student)
+    db.commit()
+    db.refresh(new_student)
+    
+    # Return response with empty grade/section names if not joined yet (client usually re-fetches or we can join)
+    # The response model expects grade_name/section_name. We can fetch them.
+    grade_name = None
+    section_name = None
+    if new_student.grade_id:
+        g = db.query(academic_models.Grade).get(new_student.grade_id)
+        if g: grade_name = g.name
+    
+    return StudentResponse(
+        id=new_student.id,
+        first_name=new_student.first_name,
+        last_name=new_student.last_name,
+        roll_number=new_student.roll_number,
+        grade_name=grade_name,
+        section_name=section_name
+    )
+
+@router.get("", response_model=List[StudentResponse])
 def list_students(
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN, Roles.TEACHER, Roles.PARENT, Roles.STUDENT)),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER, Roles.PARENT, Roles.STUDENT)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
     query = db.query(student_models.Student).filter(
-        student_models.Student.school_id == tenant.school_id,
+        student_models.Student.school_id == str(tenant.school_id),
         student_models.Student.is_active == True # Default to active only
     )
 
@@ -120,12 +190,12 @@ def update_student(
     student_id: str,
     update_data: StudentUpdate,
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
     student = db.query(student_models.Student).filter(
         student_models.Student.id == student_id,
-        student_models.Student.school_id == tenant.school_id
+        student_models.Student.school_id == str(tenant.school_id)
     ).first()
 
     if not student:
@@ -175,12 +245,12 @@ def delete_student(
     student_id: str,
     reason: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
     student = db.query(student_models.Student).filter(
         student_models.Student.id == student_id,
-        student_models.Student.school_id == tenant.school_id
+        student_models.Student.school_id == str(tenant.school_id)
     ).first()
 
     if not student:
@@ -195,11 +265,11 @@ def delete_student(
 @router.get("/inactive", response_model=List[StudentResponse])
 def list_inactive_students(
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.SUPER_ADMIN)),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
     tenant: TenantAccess = Depends(TenantAccess)
 ):
     query = db.query(student_models.Student).filter(
-        student_models.Student.school_id == tenant.school_id,
+        student_models.Student.school_id == str(tenant.school_id),
         student_models.Student.is_active == False
     ).outerjoin(academic_models.Grade, student_models.Student.grade_id == academic_models.Grade.id)\
      .outerjoin(academic_models.Section, student_models.Student.section_id == academic_models.Section.id)\
@@ -215,4 +285,81 @@ def list_inactive_students(
             grade_name=grade_name,
             section_name=section_name
         ))
+    return results
+    return results
+
+@router.get("/{student_id}/qr-token")
+def get_student_qr_token(
+    student_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PARENT, Roles.STUDENT, Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    student = db.query(student_models.Student).filter(
+        student_models.Student.id == student_id,
+        student_models.Student.school_id == str(tenant.school_id)
+    ).first()
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Authorization Check
+    if user.role == Roles.PARENT:
+        link = db.query(student_models.ParentStudentLink).filter(
+            student_models.ParentStudentLink.parent_id == user.id,
+            student_models.ParentStudentLink.student_id == student_id
+        ).first()
+        if not link:
+            raise HTTPException(status_code=403, detail="Not authorized for this student")
+    elif user.role == Roles.STUDENT:
+        if user.id != student_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Generate QR Token (Valid for 5 minutes)
+    token_data = {
+        "sub": student.id,
+        "type": "qr_entry",
+        "school_id": str(tenant.school_id),
+        "role": Roles.STUDENT
+    }
+    token = create_access_token(token_data, expires_minutes=5)
+
+    return {"token": token, "valid_minutes": 5}
+    return {"token": token, "valid_minutes": 5}
+
+@router.get("/parent/dashboard/summary")
+def get_parent_dashboard_summary(
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PARENT)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    links = db.query(student_models.ParentStudentLink).filter(
+        student_models.ParentStudentLink.parent_id == user.id,
+        student_models.ParentStudentLink.school_id == tenant.school_id
+    ).all()
+    
+    student_ids = [link.student_id for link in links]
+    if not student_ids:
+        return []
+
+    students = db.query(student_models.Student).filter(
+        student_models.Student.id.in_(student_ids)
+    ).outerjoin(academic_models.Grade, student_models.Student.grade_id == academic_models.Grade.id)\
+     .outerjoin(academic_models.Section, student_models.Student.section_id == academic_models.Section.id)\
+     .add_columns(academic_models.Grade.name.label("grade_name"), academic_models.Section.name.label("section_name"))\
+     .all()
+
+    # The Dashboard expects a specific format for the ChildSwitcher
+    # [{id, first_name, last_name, grade_name, section_name, photo_url}]
+    
+    results = []
+    for s, g_name, s_name in students:
+        results.append({
+            "id": s.id,
+            "first_name": s.first_name,
+            "last_name": s.last_name,
+            "grade": g_name or "N/A",
+            "section": s_name or "",
+            "photo_url": s.photo_url
+        })
     return results

@@ -14,7 +14,7 @@ from students.models import Student
 from typing import Dict
 from datetime import datetime, timedelta
 
-router = APIRouter(prefix="/api/superadmin", tags=["admin"])
+router = APIRouter(prefix="/superadmin", tags=["admin"])
 
 class AuditLogOut(BaseModel):
     id: str
@@ -267,3 +267,34 @@ def get_meta_stats(
         "total_teachers": total_teachers,
         "tier_distribution": tier_distribution
     }
+
+
+# ============================================
+# GOD VIEW - Platform Overview (SuperUser Only)
+# ============================================
+
+from admin.analytics_service import get_platform_overview, get_revenue_trend
+
+@router.get("/platform-overview")
+def platform_overview(
+    db: Session = Depends(get_db),
+    user = Depends(require_roles(Roles.SUPER_USER))
+):
+    """
+    God View: Complete platform metrics for SuperUser dashboard.
+    Includes ARR, MRR, MAU, Churn Risk, and System Health.
+    """
+    return get_platform_overview(db)
+
+
+@router.get("/revenue-trend")
+def revenue_trend(
+    months: int = 6,
+    db: Session = Depends(get_db),
+    user = Depends(require_roles(Roles.SUPER_USER))
+):
+    """
+    Revenue Growth Trajectory for Recharts visualization.
+    """
+    return get_revenue_trend(db, months)
+

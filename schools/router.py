@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, Request, status, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut, UserCreate, UserUpdateRoles, PasswordReset
+from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserOut, UserCreate, UserUpdateRoles, PasswordReset, UserCreateRequest, SchoolSubscriptionUpdate, UserTerminateRequest
 from .store import school_store
+from audit.models import AuditLog
+from audit.listeners import set_actor_id, set_reason
+import json
 from auth.router import get_current_superuser
 from auth.dependencies import get_current_user, require_roles, Roles
 from schools.models import User, School, UserRole
@@ -59,6 +62,20 @@ async def list_public_schools(db: Session = Depends(get_db)):
         for s in schools
     ]
 
+@router.get("/public/schools/by-slug/{school_slug}")
+async def get_school_by_slug(school_slug: str, db: Session = Depends(get_db)):
+    """Public endpoint to fetch school info by slug/code for login page branding."""
+    school = db.query(School).filter(School.code == school_slug, School.is_active == True).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    return {
+        "id": str(school.id),
+        "name": school.name,
+        "slug": school.code,
+        "logo_url": school.logo_url,
+        "country": school.country,
+    }
+
 @router.post("/schools", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
 async def create_school(
     name: str = Form(...),
@@ -75,20 +92,18 @@ async def create_school(
     # Validation logic here or manually construct Pydantic model
     school_data = SchoolCreate(name=name, code=code, country=country, is_active=is_active)
 
-    # We need to pass logo_url to store. But store.create_school expects SchoolCreate
-    # which doesn't have logo_url (it's not part of the input model, but is part of output).
-    # I should probably update SchoolCreate to optionally accept it or handle it separately.
-    # For now, let's update create_school in store to accept optional kwargs.
-
     return school_store.create_school(school_data, db, logo_url=logo_url)
 
 @router.post("/schools/with-principal", response_model=SchoolOut, status_code=status.HTTP_201_CREATED)
 async def create_school_with_principal(
     school_data: SchoolWithPrincipalCreate,
+    role: str = "principal",
     db: Session = Depends(get_db),
     _payload: dict = Depends(get_current_superuser),
 ):
-    return school_store.create_school_with_principal(school_data, db)
+    if role not in [Roles.PRINCIPAL, Roles.SUPER_ADMIN]:
+         raise HTTPException(status_code=400, detail="Invalid initial role. Must be principal or super_admin")
+    return school_store.create_school_with_principal(school_data, db, role=role)
 
 @router.patch("/schools/{school_id}/logo", response_model=SchoolOut)
 async def update_school_logo(
@@ -105,20 +120,10 @@ async def update_school_logo(
             log_forbidden_access(payload.get("sub"), token_school_id, school_id, f"update_school_logo {school_id}")
             raise HTTPException(status_code=403, detail="Access forbidden to other school data")
 
-    # Frontend sends 'logo_url' in JSON body currently, but we want to support 'file' in FormData
-    # If the frontend uses FormData, it will send 'file' (or whatever key we choose).
-    # The current frontend code sends `logo_url` in JSON body.
-    # We are changing frontend to send `logo_url` as file or separate field?
-    # The plan says "Change handleSaveLogo to usage FormData".
-
     if file:
         saved_path = save_upload_file(file)
         return school_store.update_school_logo(db, school_id, saved_path)
     elif logo_url and logo_url.startswith("data:"):
-        # Handle legacy base64 if needed, or just reject?
-        # For this task, we want to move AWAY from base64.
-        # But if we want backward compatibility...
-        # Let's assume we strictly enforce file upload now.
         pass
 
     raise HTTPException(status_code=400, detail="No logo file provided")
@@ -146,7 +151,7 @@ async def update_school(
 
     return school_store.update_school(db, school_id, name=name, country=country, type=type, logo_url=logo_path)
 
-@router.get("/schools", response_model=list[SchoolOut])
+@router.get("/schools")
 async def list_schools(
     request: Request,
     status_filter: str | None = None,
@@ -166,12 +171,36 @@ async def list_schools(
 
     # Filter by school_id if not superuser
     school_id_filter = None
-    if current_user.role != "superuser" and current_user.role != Roles.SUPER_ADMIN:
+    if current_user.role != "superuser" and current_user.role != Roles.SUPER_USER:
         school_id_filter = current_user.school_id
 
     schools = school_store.list_schools(db, is_active=is_active, school_id=school_id_filter)
     print("DEBUG API schools: school count:", len(schools))
-    return schools
+    
+    # Add admin count for each school
+    result = []
+    for s in schools:
+        # Count super_admin users for this school
+        admin_count = db.query(User).filter(
+            User.school_id == s.id,
+            User.role.in_(["super_admin", "SUPER_ADMIN", "principal"])
+        ).count()
+        
+        result.append({
+            "id": str(s.id),
+            "name": s.name,
+            "code": s.code,
+            "country": s.country,
+            "is_active": s.is_active,
+            "logo_url": s.logo_url,
+            "subscription_tier": s.subscription_tier.value if hasattr(s.subscription_tier, 'value') else s.subscription_tier,
+            "subscription_expiry": s.subscription_expiry,
+            "created_at": s.created_at,
+            "has_admin": admin_count > 0,
+            "admin_count": admin_count
+        })
+    
+    return result
 
 @router.post("/schools/{school_id}/subscription/extend")
 async def extend_subscription(
@@ -230,7 +259,7 @@ async def toggle_freeze(
     return {"message": f"School is now {status_msg}", "is_active": school.is_active}
 
 @router.get("/stats/counts")
-async def get_dashboard_counts(
+def get_dashboard_counts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -242,8 +271,7 @@ async def get_dashboard_counts(
         Complaint.status == ComplaintStatus.OPEN
     ).count()
 
-    # 2. Recent Notices (Last 7 days, or specific logic)
-    # For now, let's just count all notices for simplicity or last 7 days
+    # 2. Recent Notices
     from datetime import datetime, timedelta
     seven_days_ago = datetime.utcnow() - timedelta(days=7)
 
@@ -252,18 +280,229 @@ async def get_dashboard_counts(
         Notice.created_at >= seven_days_ago
     ).count()
 
+    # 3. Highest priority of recent notices (for sidebar color)
+    from communication.models import NoticePriority
+    highest_priority = None
+    priority_order = ["CRITICAL", "IMPORTANT", "NORMAL"]
+    for priority in priority_order:
+        has_priority = db.query(Notice).filter(
+            Notice.school_id == str(current_user.school_id),
+            Notice.created_at >= seven_days_ago,
+            Notice.priority == priority
+        ).first()
+        if has_priority:
+            highest_priority = priority
+            break
+
     return {
         "complaints_count": complaints_count,
-        "notices_count": notices_count
+        "notices_count": notices_count,
+        "highest_notice_priority": highest_priority
     }
 
-@router.get("/api/users", response_model=list[UserOut])
+@router.get("/dashboard/summary")
+def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Universal Dashboard Summary API
+    Returns role-appropriate summary data for the dashboard.
+    """
+    from students.models import Student, ParentStudentLink
+    from finance.models import Invoice, Payment, PaymentStatus, Fee
+    from communication.models import Notice
+    from attendance.models import Attendance, AttendanceStatus
+    from academics.models import Grade, ExamTerm
+    from sqlalchemy import func
+    from datetime import datetime, timedelta, timezone
+    
+    school_id = str(current_user.school_id)
+    today = datetime.now(timezone.utc).date()
+    
+    # Get school info
+    school = db.query(School).filter(School.id == current_user.school_id).first()
+    
+    # Base response
+    response = {
+        "school_name": school.name if school else "School",
+        "school_logo_url": school.logo_url if school else None,
+        "school_type": school.subscription_tier.value if school and hasattr(school.subscription_tier, 'value') else "school",
+    }
+    
+    # Role-specific data
+    role = current_user.role
+    
+    if role == "parent":
+        # Parent dashboard - show children info
+        links = db.query(ParentStudentLink).filter(
+            ParentStudentLink.parent_id == str(current_user.id)
+        ).all()
+        
+        children = []
+        total_outstanding = 0.0
+        
+        for link in links:
+            student = db.query(Student).filter(Student.id == link.student_id).first()
+            if student:
+                # Get grade and section names
+                grade = db.query(Grade).filter(Grade.id == student.grade_id).first() if student.grade_id else None
+                
+                # Calculate outstanding fees
+                outstanding = db.query(func.sum(Fee.amount)).filter(
+                    Fee.student_id == student.id,
+                    Fee.status == "pending"
+                ).scalar() or 0.0
+                
+                total_outstanding += outstanding
+                
+                children.append({
+                    "id": student.id,
+                    "first_name": student.first_name,
+                    "last_name": student.last_name,
+                    "grade_name": grade.name if grade else None,
+                    "section_name": None,
+                    "outstanding_fees": outstanding
+                })
+        
+        response["children"] = children
+        response["total_outstanding"] = total_outstanding
+        
+    else:
+        # Staff/Admin dashboard
+        # Student count
+        student_count = db.query(func.count(Student.id)).filter(
+            Student.school_id == school_id,
+            Student.is_active == True
+        ).scalar() or 0
+        
+        # Pending dues count
+        pending_dues = db.query(func.count(Fee.id)).filter(
+            Fee.school_id == school_id,
+            Fee.status == "pending"
+        ).scalar() or 0
+        
+        # Fees collected this month
+        first_of_month = today.replace(day=1)
+        fees_collected = db.query(func.sum(Payment.amount)).filter(
+            Payment.school_id == school_id,
+            Payment.status == PaymentStatus.SUCCEEDED,
+            Payment.created_at >= datetime.combine(first_of_month, datetime.min.time()).replace(tzinfo=timezone.utc)
+        ).scalar() or 0.0
+        
+        # Notices count
+        seven_days_ago = today - timedelta(days=7)
+        notices_count = db.query(func.count(Notice.id)).filter(
+            Notice.school_id == school_id,
+            Notice.created_at >= datetime.combine(seven_days_ago, datetime.min.time()).replace(tzinfo=timezone.utc)
+        ).scalar() or 0
+        
+        response["student_count"] = student_count
+        response["pending_dues_count"] = pending_dues
+        response["fees_collected_this_month"] = fees_collected
+        response["notices_count"] = notices_count
+        
+        # For principal, add additional analytics data
+        if role in ["principal", "super_admin", "SUPER_ADMIN"]:
+            # Average attendance (last 30 days)
+            thirty_days_ago = today - timedelta(days=30)
+            attendance_records = db.query(Attendance).filter(
+                Attendance.school_id == school_id,
+                Attendance.date >= thirty_days_ago
+            ).all()
+            
+            total_records = len(attendance_records)
+            present_records = sum(1 for a in attendance_records if a.status == AttendanceStatus.PRESENT)
+            avg_attendance = (present_records / total_records * 100) if total_records > 0 else 0
+            
+            response["avg_attendance_rate"] = round(avg_attendance, 1)
+            
+            # Fee collection progress
+            total_invoiced = db.query(func.sum(Invoice.total_amount)).filter(
+                Invoice.school_id == school_id,
+                Invoice.status.notin_(["CANCELLED", "REFUNDED"])
+            ).scalar() or 0.0
+            
+            response["total_invoiced"] = total_invoiced
+            response["collection_percent"] = round((fees_collected / total_invoiced * 100), 1) if total_invoiced > 0 else 0
+            
+            # Current term
+            current_term = db.query(ExamTerm).filter(
+                ExamTerm.school_id == school_id
+            ).order_by(ExamTerm.start_date.desc()).first()
+            
+            response["current_term"] = current_term.name if current_term else "Current Term"
+    
+    return response
+
+@router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_in: UserCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    # Authorization checks for role assignment
+    target_school_id = current_user.school_id
+
+    # If Superuser, allow targeting specific school for admin creation
+    if current_user.role == Roles.SUPER_USER or current_user.role == "superuser":
+        if user_in.school_id:
+            target_school_id = user_in.school_id
+        elif not target_school_id:
+             # If no school_id in token or payload, creates platform user?
+             # If trying to create a SCHOOL role without school_id -> Error
+             roles_to_check = user_in.roles if user_in.roles else ([user_in.role] if user_in.role else [])
+             school_roles = [Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.TEACHER, Roles.STUDENT, Roles.PARENT]
+             if any(r in school_roles for r in roles_to_check):
+                 raise HTTPException(status_code=400, detail="school_id required for this role")
+             # If creating superuser, target_school_id stays None
+    else:
+        # Non-superusers cannot specify school_id (must match token)
+        if user_in.school_id and str(user_in.school_id) != str(current_user.school_id):
+             raise HTTPException(status_code=403, detail="Cannot create users for other schools")
+
+    # Check permissions for admin/principal roles
+    roles_to_check = user_in.roles if user_in.roles else ([user_in.role] if user_in.role else [])
+    protected_roles = [Roles.SUPER_ADMIN, Roles.PRINCIPAL]
+    if any(r in protected_roles for r in roles_to_check):
+         if current_user.role not in [Roles.SUPER_USER, "superuser", Roles.SUPER_ADMIN]:
+              raise HTTPException(status_code=403, detail="Insufficient permissions to create Admin/Principal roles")
+
+    # Set audit context
+    set_actor_id(str(current_user.id))
+    set_reason("User Creation")
+
+    return school_store.create_user(db, user_in, target_school_id)
+
+@router.put("/schools/{school_id}/subscription", response_model=SchoolOut)
+async def update_subscription_tier(
+    school_id: str,
+    update_data: SchoolSubscriptionUpdate,
+    db: Session = Depends(get_db),
+    _payload: dict = Depends(get_current_superuser),
+):
+    school = db.query(School).filter(School.id == UUID(school_id)).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+
+    school.subscription_tier = update_data.tier
+    if update_data.expiry_days is not None:
+        school.subscription_expiry = datetime.utcnow() + timedelta(days=update_data.expiry_days)
+    
+    # If upgrading to paid tier, ensure active
+    if update_data.tier != SubscriptionTier.FREE and update_data.tier != "demo":
+         school.is_active = True
+
+    db.commit()
+    return SchoolOut.model_validate(school)
+
+@router.get("/users", response_model=list[UserOut])
 async def list_users(
     status: str | None = None,
     role: str | None = None,
     q: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))
+    current_user: User = Depends(require_roles(Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
     query = db.query(User).filter(User.school_id == current_user.school_id)
 
@@ -301,6 +540,7 @@ async def list_users(
             "role": u.role,
             "is_active": u.is_active,
             "school_id": u.school_id,
+            "school_country": u.school.country if u.school else None,
             "phone": u.phone,
             "created_at": u.created_at,
             "roles": assigned
@@ -313,7 +553,7 @@ async def update_user_roles(
     user_id: UUID,
     roles_in: UserUpdateRoles,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
     if not user:
@@ -322,6 +562,7 @@ async def update_user_roles(
     if str(user.id) == str(current_user.id):
          raise HTTPException(status_code=400, detail="Cannot modify your own roles")
 
+    old_role = user.role
     db.query(UserRole).filter(UserRole.user_id == user.id).delete()
 
     if not roles_in.roles:
@@ -332,6 +573,18 @@ async def update_user_roles(
 
     for r in roles_in.roles[1:]:
         db.add(UserRole(user_id=user.id, role_name=r))
+
+    # Audit Log
+    audit_entry = AuditLog(
+        actor_id=str(current_user.id),
+        action_type="ROLE_CHANGE",
+        table_name="users",
+        record_id=str(user.id),
+        before_state=json.dumps({"role": old_role}),
+        after_state=json.dumps({"role": primary_role}),
+        reason=roles_in.reason
+    )
+    db.add(audit_entry)
 
     db.commit()
     db.refresh(user)
@@ -354,7 +607,7 @@ async def update_user_roles(
 async def enable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
     if not user:
@@ -368,7 +621,7 @@ async def enable_user(
 async def disable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
     if not user:
@@ -387,7 +640,7 @@ async def reset_user_password(
     user_id: UUID,
     payload: PasswordReset,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
     if not user:
@@ -403,7 +656,7 @@ async def reset_user_password(
 async def delete_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PRINCIPAL))
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
      user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
      if not user:
@@ -415,3 +668,176 @@ async def delete_user(
      db.delete(user)
      db.commit()
      return {"message": "User deleted"}
+
+@router.post("/users/{user_id}/terminate")
+async def terminate_user(
+    user_id: UUID,
+    payload: UserTerminateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if str(user.id) == str(current_user.id):
+        raise HTTPException(status_code=400, detail="Cannot terminate yourself")
+
+    old_role = user.role
+    user.is_active = False
+    user.role = f"terminated_{old_role}"
+    user.token_version += 1
+
+    # Audit Log
+    audit_entry = AuditLog(
+        actor_id=str(current_user.id),
+        action_type="TERMINATION",
+        table_name="users",
+        record_id=str(user.id),
+        before_state=json.dumps({"role": old_role, "is_active": True}),
+        after_state=json.dumps({"role": user.role, "is_active": False}),
+        reason=payload.reason
+    )
+    db.add(audit_entry)
+
+    db.commit()
+    return {"message": f"User terminated. Former role: {old_role}"}
+
+# Schema for Audit Log output
+class AuditLogListItem(BaseModel):
+    id: str
+    actor_id: str | None
+    action_type: str
+    table_name: str
+    record_id: str | None
+    timestamp: datetime
+    reason: str | None
+    actor_name: str | None = None
+    before_state: str | None = None
+    after_state: str | None = None
+
+    class Config:
+        from_attributes = True
+
+@router.get("/audit-logs")
+def list_school_audit_logs(
+    search: str = None,
+    limit: int = 50,
+    cursor: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, "school_admin", Roles.ACCOUNTANT))
+):
+    """
+    School-scoped Audit Log Viewer with cursor-based pagination.
+    Accessible to SuperAdmin, Principal, SchoolAdmin, Accountant.
+    """
+    from typing import Optional
+    import base64
+    
+    # Cap limit
+    limit = min(limit, 100)
+    
+    # Get all users in this school for filtering
+    school_users = db.query(User).filter(User.school_id == current_user.school_id).all()
+    school_user_ids = [str(u.id) for u in school_users]
+    user_name_map = {str(u.id): f"{u.first_name} {u.last_name}" for u in school_users}
+    
+    # Base query
+    query = db.query(AuditLog).filter(
+        or_(
+            AuditLog.actor_id.in_(school_user_ids),
+            AuditLog.actor_id.is_(None)
+        )
+    )
+    
+    # Apply search filter
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                AuditLog.table_name.ilike(search_term),
+                AuditLog.action_type.ilike(search_term),
+                AuditLog.record_id.ilike(search_term),
+                AuditLog.reason.ilike(search_term),
+                AuditLog.actor_id.in_([
+                    uid for uid, name in user_name_map.items() 
+                    if search.lower() in name.lower()
+                ])
+            )
+        )
+    
+    # Apply Cursor Logic (Keyset Pagination: timestamp DESC, id DESC)
+    if cursor:
+        try:
+            decoded = base64.urlsafe_b64decode(cursor).decode()
+            cursor_ts_str, cursor_id = decoded.split("||")
+            cursor_ts = datetime.fromisoformat(cursor_ts_str)
+            
+            # (timestamp < cursor_ts) OR (timestamp == cursor_ts AND id < cursor_id)
+            query = query.filter(
+                or_(
+                    AuditLog.timestamp < cursor_ts,
+                    (AuditLog.timestamp == cursor_ts) & (AuditLog.id < cursor_id)
+                )
+            )
+        except Exception:
+            # Invalid cursor? Just ignore or validation error. Ignoring safer for reliability.
+            pass
+
+    # Order by timestamp descending (most recent first) then ID for deterministic tie-breaking
+    # Fetch limit + 1 to check for next page
+    logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(limit + 1).all()
+    
+    next_cursor = None
+    if len(logs) > limit:
+        next_item = logs[limit] # The +1 item
+        logs = logs[:limit] # Truncate to limit
+        
+        # Create next cursor
+        cursor_str = f"{next_item.timestamp.isoformat()}||{next_item.id}"
+        next_cursor = base64.urlsafe_b64encode(cursor_str.encode()).decode()
+
+    # Results building
+    import json
+    results = []
+    for log in logs:
+        # Check privacy
+        if log.hidden_for_user_ids:
+            try:
+                hidden_ids = json.loads(log.hidden_for_user_ids)
+                if str(current_user.id) in hidden_ids:
+                    continue 
+            except:
+                pass 
+
+        results.append({
+            "id": log.id,
+            "actor_id": log.actor_id,
+            "actor_name": user_name_map.get(log.actor_id, "System"),
+            "action_type": log.action_type,
+            "table_name": log.table_name,
+            "record_id": log.record_id,
+            "timestamp": log.timestamp,
+            "reason": log.reason,
+            "before_state": log.before_state,
+            "after_state": log.after_state
+        })
+
+    return {
+        "items": results,
+        "next_cursor": next_cursor
+    }
+
+@router.get("/staff-directory", response_model=list[UserOut])
+def get_staff_directory(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Roles.TEACHER, Roles.PRINCIPAL, "school_admin", Roles.SECURITY_GUARD, Roles.SUPER_ADMIN, Roles.PARENT, Roles.STUDENT))
+):
+    """
+    List staff members for complaint selection.
+    """
+    return db.query(User).filter(
+        User.school_id == user.school_id,
+        User.role.in_([Roles.TEACHER, Roles.PRINCIPAL, "school_admin", Roles.SECURITY_GUARD, Roles.SUPER_ADMIN, Roles.ACCOUNTANT])
+    ).all()
+

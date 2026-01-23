@@ -7,7 +7,7 @@ from finance import models as finance_models
 from students import models as student_models
 from academics import models as academic_models
 from finance import plans_schemas
-from auth.subscription import require_subscription_feature
+from auth.subscription import require_subscription_feature, require_active_subscription
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import shutil
@@ -18,7 +18,7 @@ from audit.listeners import set_reason
 
 # Router config
 # Using a specific prefix for finance admin/ops
-router = APIRouter(prefix="/api/finance", tags=["Finance"])
+router = APIRouter(prefix="/finance", tags=["Finance"])
 email_service = NotificationService()
 
 class FeeCreate(BaseModel):
@@ -31,7 +31,7 @@ class FeeUpdate(BaseModel):
     status: Optional[str] = None # 'paid' or 'pending'
     reason: Optional[str] = None
 
-@router.post("/fees", dependencies=[Depends(require_roles("accountant", "school_admin", "super_admin"))])
+@router.post("/fees", dependencies=[Depends(require_roles("accountant", "super_admin", "superuser")), Depends(require_active_subscription())])
 def create_fee(
     fee: FeeCreate,
     db: Session = Depends(get_db),
@@ -61,7 +61,7 @@ def create_fee(
     db.refresh(new_fee)
     return new_fee
 
-@router.patch("/fees/{fee_id}", dependencies=[Depends(require_roles("accountant", "school_admin", "super_admin"))])
+@router.patch("/fees/{fee_id}", dependencies=[Depends(require_roles("accountant", "super_admin", "superuser")), Depends(require_active_subscription())])
 def update_fee(
     fee_id: str,
     update: FeeUpdate,
@@ -135,7 +135,7 @@ def create_payment_plan(
     invoice_id: str,
     plan_data: plans_schemas.PaymentPlanCreate,
     db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT)),
+    user: school_models.User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.ACCOUNTANT)),
     tenant: TenantAccess = Depends(TenantAccess),
     _ = Depends(require_subscription_feature("PAYMENT_PLANS"))
 ):
@@ -182,7 +182,7 @@ def create_payment_plan(
 def approve_payment_plan(
     plan_id: str,
     db: Session = Depends(get_db),
-    user: school_models.User = Depends(require_roles(Roles.ACCOUNTANT, Roles.SCHOOL_ADMIN)),
+    user: school_models.User = Depends(require_roles(Roles.ACCOUNTANT, Roles.SUPER_ADMIN)),
     tenant: TenantAccess = Depends(TenantAccess),
     _ = Depends(require_subscription_feature("PAYMENT_PLANS"))
 ):
@@ -225,7 +225,7 @@ async def upload_receipt(
         raise HTTPException(status_code=404, detail="Fee not found")
 
     # Access Control: Parent of student, Student themselves, or Admin
-    is_admin = current_user.role in [Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.ACCOUNTANT]
+    is_admin = current_user.role in [Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.ACCOUNTANT]
 
     if not is_admin:
         if current_user.role == Roles.STUDENT:

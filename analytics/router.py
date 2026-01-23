@@ -404,7 +404,7 @@ def get_student_profile(
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    is_admin = current_user.role in ["super_admin", "principal", "school_admin"]
+    is_admin = current_user.role in ["superuser", "principal", "super_admin"]
     is_teacher = current_user.role == "teacher"
     is_parent = current_user.role == "parent"
     is_student = current_user.role == "student"
@@ -463,7 +463,7 @@ def get_my_student_health(
     current_user: school_models.User = Depends(get_current_user)
 ):
     # If Admin, return a generic dashboard view
-    if current_user.role in [Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.TEACHER]:
+    if current_user.role in [Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.TEACHER]:
         return {
             "student_info": {"name": f"{current_user.first_name} (Admin)", "id": current_user.id},
             "academic_trend": [],
@@ -504,7 +504,7 @@ def get_admin_overview(
     db: Session = Depends(get_db),
     current_user: school_models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ["super_admin", "principal", "school_admin"]:
+    if current_user.role not in ["superuser", "principal", "super_admin"]:
          raise HTTPException(status_code=403, detail="Access denied")
 
     school_id = current_user.school_id
@@ -553,7 +553,7 @@ def get_finance_snapshot(
     current_user: school_models.User = Depends(get_current_user)
 ):
     # Allow Board (Principal/Admin) and Accountant
-    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    allowed_roles = ["superuser", "principal", "super_admin", "accountant"]
     if current_user.role not in allowed_roles:
          raise HTTPException(status_code=403, detail="Access denied")
 
@@ -566,7 +566,7 @@ def get_revenue_velocity(
     db: Session = Depends(get_db),
     current_user: school_models.User = Depends(get_current_user)
 ):
-    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    allowed_roles = ["superuser", "principal", "super_admin", "accountant"]
     if current_user.role not in allowed_roles:
          raise HTTPException(status_code=403, detail="Access denied")
 
@@ -579,7 +579,7 @@ def get_finance_velocity(
     current_user: school_models.User = Depends(get_current_user)
 ):
     # Allow Board (Principal/Admin) and Accountant
-    allowed_roles = ["super_admin", "principal", "school_admin", "accountant"]
+    allowed_roles = ["superuser", "principal", "super_admin", "accountant"]
     if current_user.role not in allowed_roles:
          raise HTTPException(status_code=403, detail="Access denied")
 

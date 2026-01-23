@@ -20,7 +20,7 @@ const FeesTab = () => {
   const fetchFees = async () => {
     try {
       // Reuse student-health to get fees if no dedicated list endpoint
-      const response = await api.get('/api/analytics/student-health');
+      const response = await api.get('/analytics/student-health');
       if (response.data.fee_invoices) {
         setFees(response.data.fee_invoices);
       }
@@ -41,7 +41,7 @@ const FeesTab = () => {
     formData.append('fee_id', feeId);
 
     try {
-      await api.post('/api/finance/receipt', formData, {
+      await api.post('/finance/receipt', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       toast.success("Receipt uploaded successfully!");
@@ -78,38 +78,38 @@ const FeesTab = () => {
             </div>
           </CardHeader>
           <CardContent>
-             {fee.status === 'paid' ? (
-                 <div className="flex items-center text-green-600 space-x-2">
-                     <CheckCircle size={16} />
-                     <span className="text-sm">Paid on {new Date(fee.paid_date).toLocaleDateString()}</span>
-                 </div>
-             ) : (
-                 <div className="space-y-2">
-                     {fee.receipt_url ? (
-                         <div className="flex items-center space-x-2">
-                             <CheckCircle size={16} className="text-yellow-600" />
-                             <span className="text-sm text-yellow-600">Receipt Uploaded (Pending Review)</span>
-                             {/* Optional: View Receipt Link */}
-                         </div>
-                     ) : (
-                        <div className="mt-2">
-                             <Label htmlFor={`upload-${fee.id}`} className="block text-sm font-medium mb-1">
-                                 Upload Evidence
-                             </Label>
-                             <div className="flex space-x-2">
-                                <Input
-                                    id={`upload-${fee.id}`}
-                                    type="file"
-                                    accept="image/*,application/pdf"
-                                    onChange={(e) => handleUpload(fee.id, e.target.files[0])}
-                                    disabled={uploading === fee.id}
-                                />
-                                {uploading === fee.id && <Loader2 className="animate-spin" />}
-                             </div>
-                        </div>
-                     )}
-                 </div>
-             )}
+            {fee.status === 'paid' ? (
+              <div className="flex items-center text-green-600 space-x-2">
+                <CheckCircle size={16} />
+                <span className="text-sm">Paid on {new Date(fee.paid_date).toLocaleDateString()}</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {fee.receipt_url ? (
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle size={16} className="text-yellow-600" />
+                    <span className="text-sm text-yellow-600">Receipt Uploaded (Pending Review)</span>
+                    {/* Optional: View Receipt Link */}
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <Label htmlFor={`upload-${fee.id}`} className="block text-sm font-medium mb-1">
+                      Upload Evidence
+                    </Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id={`upload-${fee.id}`}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={(e) => handleUpload(fee.id, e.target.files[0])}
+                        disabled={uploading === fee.id}
+                      />
+                      {uploading === fee.id && <Loader2 className="animate-spin" />}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       ))}

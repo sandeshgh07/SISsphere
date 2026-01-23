@@ -27,7 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Search, Eye, Users, ShieldAlert, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download, Key, Trash2, Edit, UserX, UserCheck } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 // Phase 6.1: Updated gender options
 const GENDER_OPTIONS = [
@@ -93,7 +93,7 @@ export default function StudentsPage() {
 
   const effectiveRole = getEffectiveRole();
   const isPrincipal = effectiveRole === "principal";
-  const isSchoolAdmin = effectiveRole === "school_admin";
+  const isSchoolAdmin = effectiveRole === "super_admin";
   const isTeacher = effectiveRole === "teacher";
   const isParent = effectiveRole === "parent";
   const isAccountant = effectiveRole === "accountant";
@@ -114,9 +114,9 @@ export default function StudentsPage() {
       const headers = { Authorization: `Bearer ${accessToken}` };
       const [studentsRes, gradesRes, usersRes, sectionsRes] = await Promise.all([
         axios.get(`${API_BASE}/api/students`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/grades`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_BASE}/api/academics/grades`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/users`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/sections`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_BASE}/api/academics/sections`, { headers }).catch(() => ({ data: [] })),
       ]);
       setStudents(studentsRes.data || []);
       setGrades(gradesRes.data || []);
@@ -237,7 +237,7 @@ export default function StudentsPage() {
   const parseCSV = (text) => {
     const lines = text.trim().split('\n');
     if (lines.length < 2) return { headers: [], rows: [] };
-    
+
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
     const rows = lines.slice(1).map((line, idx) => {
       const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
@@ -246,21 +246,21 @@ export default function StudentsPage() {
       row._rowIndex = idx + 2; // 1-indexed, +1 for header
       return row;
     });
-    
+
     return { headers, rows };
   };
 
   const validateCSVRows = (rows) => {
     const errors = [];
     const gradeNameMap = {};
-    grades.forEach(g => { 
+    grades.forEach(g => {
       gradeNameMap[g.name.toLowerCase()] = g.id;
       gradeNameMap[String(g.level || g.name).toLowerCase()] = g.id;
     });
 
     rows.forEach((row, idx) => {
       const rowNum = row._rowIndex || idx + 2;
-      
+
       if (!row.first_name) {
         errors.push({ row: rowNum, field: 'first_name', message: 'First name is required' });
       }
@@ -283,29 +283,29 @@ export default function StudentsPage() {
   const handleCSVFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     if (!file.name.endsWith('.csv')) {
       toast({ title: "Error", description: "Please upload a CSV file", variant: "destructive" });
       return;
     }
-    
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result;
       const { headers, rows } = parseCSV(text);
-      
+
       // Check required columns
       const requiredCols = ['first_name', 'last_name', 'grade'];
       const missingCols = requiredCols.filter(c => !headers.includes(c));
       if (missingCols.length > 0) {
-        toast({ 
-          title: "Error", 
+        toast({
+          title: "Error",
           description: `Missing required columns: ${missingCols.join(', ')}`,
-          variant: "destructive" 
+          variant: "destructive"
         });
         return;
       }
-      
+
       setCsvFile(file);
       setCsvPreview(rows.slice(0, 5)); // Preview first 5 rows
       setCsvErrors(validateCSVRows(rows));
@@ -315,27 +315,27 @@ export default function StudentsPage() {
 
   const handleCSVImport = async () => {
     if (!csvFile) return;
-    
+
     setImporting(true);
     try {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const text = event.target?.result;
         const { rows } = parseCSV(text);
-        
+
         // Map grade names to IDs
         const gradeNameMap = {};
-        grades.forEach(g => { 
+        grades.forEach(g => {
           gradeNameMap[g.name.toLowerCase()] = g.id;
           gradeNameMap[String(g.level || g.name).toLowerCase()] = g.id;
         });
-        
+
         const genderMap = { 'm': 'male', 'f': 'female', 'male': 'male', 'female': 'female', 'prefer_not_to_say': 'prefer_not_to_say' };
-        
+
         let successCount = 0;
         let errorCount = 0;
         const importErrors = [];
-        
+
         for (const row of rows) {
           try {
             const gradeId = gradeNameMap[row.grade.toLowerCase()];
@@ -344,7 +344,7 @@ export default function StudentsPage() {
               errorCount++;
               continue;
             }
-            
+
             await axios.post(
               `${API_BASE}/api/students`,
               {
@@ -365,15 +365,15 @@ export default function StudentsPage() {
             errorCount++;
           }
         }
-        
+
         if (successCount > 0) {
-          toast({ 
-            title: "Import Complete", 
-            description: `${successCount} students imported${errorCount > 0 ? `, ${errorCount} failed` : ''}` 
+          toast({
+            title: "Import Complete",
+            description: `${successCount} students imported${errorCount > 0 ? `, ${errorCount} failed` : ''}`
           });
           loadData();
         }
-        
+
         if (importErrors.length > 0) {
           setCsvErrors(importErrors.map((msg, i) => ({ row: i, message: msg })));
         } else {
@@ -382,7 +382,7 @@ export default function StudentsPage() {
           setCsvPreview([]);
           setCsvErrors([]);
         }
-        
+
         setImporting(false);
       };
       reader.readAsText(csvFile);
@@ -398,7 +398,7 @@ export default function StudentsPage() {
       toast({ title: "No Data", description: "No students to export", variant: "destructive" });
       return;
     }
-    
+
     // Build CSV content
     const headers = ["first_name", "last_name", "grade", "section", "roll_no", "gender", "date_of_birth", "email", "phone", "status"];
     const rows = students.map(s => [
@@ -413,11 +413,11 @@ export default function StudentsPage() {
       s.phone || "",
       s.status || "active",
     ]);
-    
+
     const csvContent = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
       .join("\n");
-    
+
     // Download
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -428,7 +428,7 @@ export default function StudentsPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     toast({ title: "Success", description: `Exported ${students.length} students` });
   };
 
@@ -482,7 +482,7 @@ export default function StudentsPage() {
         setActionLoading(false);
         return;
       }
-      await axios.post(`${API_BASE}/api/users/${studentUser.id}/reset-password`, 
+      await axios.post(`${API_BASE}/api/users/${studentUser.id}/reset-password`,
         { new_password: newPassword },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -525,9 +525,9 @@ export default function StudentsPage() {
     try {
       await axios.patch(`${API_BASE}/api/students/${selectedStudent.id}`,
         {
-            grade_id: selectedStudent.grade_id,
-            section_id: selectedStudent.section_id || null,
-            reason: justification
+          grade_id: selectedStudent.grade_id,
+          section_id: selectedStudent.section_id || null,
+          reason: justification
         },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -691,8 +691,8 @@ export default function StudentsPage() {
                 {isTeacher && (user?.grade_assignments?.length === 0)
                   ? "No students to display. You are not assigned to any grades."
                   : isParent
-                  ? "No children linked to your account."
-                  : "No students found."}
+                    ? "No children linked to your account."
+                    : "No students found."}
               </p>
               {canCreate && (
                 <Button
@@ -1104,7 +1104,7 @@ export default function StudentsPage() {
       </Dialog>
 
       {/* CSV Import Modal */}
-      <Dialog open={showImportModal} onOpenChange={(open) => { 
+      <Dialog open={showImportModal} onOpenChange={(open) => {
         setShowImportModal(open);
         if (!open) { setCsvFile(null); setCsvPreview([]); setCsvErrors([]); }
       }}>
@@ -1128,7 +1128,7 @@ export default function StudentsPage() {
 
             {/* File Upload */}
             <div>
-              <label 
+              <label
                 className="flex flex-col items-center gap-2 p-6 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-slate-500 transition-colors"
               >
                 <Upload className="h-8 w-8 text-slate-400" />
@@ -1316,9 +1316,9 @@ export default function StudentsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditModal(false)} className="border-slate-600">Cancel</Button>
             <Button
-                onClick={handleUpdateStudent}
-                disabled={actionLoading || (originalStudent?.section_id && justification.length < 10)}
-                className="bg-blue-600 hover:bg-blue-500"
+              onClick={handleUpdateStudent}
+              disabled={actionLoading || (originalStudent?.section_id && justification.length < 10)}
+              className="bg-blue-600 hover:bg-blue-500"
             >
               {actionLoading ? "Saving..." : "Save"}
             </Button>

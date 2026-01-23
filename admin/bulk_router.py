@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/admin/bulk", tags=["bulk_data"])
 @router.get("/export/students")
 def export_students(
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL))
 ):
     students = db.query(Student).filter(Student.school_id == user.school_id).all()
 
@@ -39,7 +39,7 @@ def export_students(
 @router.get("/export/teachers")
 def export_teachers(
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL))
 ):
     teachers = db.query(User).filter(User.school_id == user.school_id, User.role == Roles.TEACHER).all()
 
@@ -60,7 +60,7 @@ def export_teachers(
 @router.get("/export/invoices")
 def export_invoices(
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT))
 ):
     fees = db.query(Fee).filter(Fee.school_id == user.school_id).all()
 
@@ -81,7 +81,7 @@ def export_invoices(
 @router.get("/export/audit-logs")
 def export_audit_logs(
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL))
 ):
     # Filter logs where actor is from the same school
     logs = db.query(AuditLog).join(User, AuditLog.actor_id == User.id)\
@@ -107,7 +107,7 @@ def export_audit_logs(
 async def import_students(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL))
 ):
     if not file.filename.endswith(('.csv', '.xlsx')):
          raise HTTPException(status_code=400, detail="Invalid format. Use CSV or Excel.")
@@ -158,7 +158,7 @@ async def import_students(
 async def import_fees(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Roles.SCHOOL_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT))
+    user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, Roles.ACCOUNTANT))
 ):
     if not file.filename.endswith(('.csv', '.xlsx')):
          raise HTTPException(status_code=400, detail="Invalid format. Use CSV or Excel.")

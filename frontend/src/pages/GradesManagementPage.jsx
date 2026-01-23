@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Edit2, Layers, AlertTriangle, Trash2, GraduationCap, LayoutGrid } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 export default function GradesManagementPage() {
   const { accessToken, getEffectiveRole } = useAuth();
@@ -51,10 +51,10 @@ export default function GradesManagementPage() {
     setLoading(true);
     try {
       const [gradesRes, sectionsRes] = await Promise.all([
-        axios.get(`${API_BASE}/api/grades?active_only=false`, {
+        axios.get(`${API_BASE}/api/academics/grades?active_only=false`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
-        axios.get(`${API_BASE}/api/sections?active_only=false`, {
+        axios.get(`${API_BASE}/api/academics/sections?active_only=false`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
       ]);
@@ -81,7 +81,7 @@ export default function GradesManagementPage() {
     setActionLoading(true);
     try {
       await axios.post(
-        `${API_BASE}/api/grades`,
+        `${API_BASE}/api/academics/grades`,
         { name: newGrade.name, description: newGrade.description || null },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -104,7 +104,7 @@ export default function GradesManagementPage() {
     setActionLoading(true);
     try {
       await axios.patch(
-        `${API_BASE}/api/grades/${editingGrade.id}`,
+        `${API_BASE}/api/academics/grades/${editingGrade.id}`,
         { name: editingGrade.name, description: editingGrade.description },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -122,8 +122,8 @@ export default function GradesManagementPage() {
   const handleToggleGradeActive = async (grade) => {
     try {
       const endpoint = grade.is_active
-        ? `${API_BASE}/api/grades/${grade.id}/disable`
-        : `${API_BASE}/api/grades/${grade.id}/enable`;
+        ? `${API_BASE}/api/academics/grades/${grade.id}/disable`
+        : `${API_BASE}/api/academics/grades/${grade.id}/enable`;
       await axios.post(endpoint, {}, { headers: { Authorization: `Bearer ${accessToken}` } });
       toast({ title: "Success", description: `Grade ${grade.is_active ? "disabled" : "enabled"}` });
       loadData();
@@ -141,7 +141,7 @@ export default function GradesManagementPage() {
     setActionLoading(true);
     try {
       await axios.post(
-        `${API_BASE}/api/sections`,
+        `${API_BASE}/api/academics/sections`,
         { name: newSectionName.trim() },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -164,7 +164,7 @@ export default function GradesManagementPage() {
     setActionLoading(true);
     try {
       await axios.patch(
-        `${API_BASE}/api/sections/${editingSection.id}`,
+        `${API_BASE}/api/academics/sections/${editingSection.id}`,
         { name: editingSection.name.trim() },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -182,7 +182,7 @@ export default function GradesManagementPage() {
   const handleDeleteSection = async (section) => {
     if (!window.confirm(`Are you sure you want to delete section "${section.name}"?`)) return;
     try {
-      await axios.delete(`${API_BASE}/api/sections/${section.id}`, {
+      await axios.delete(`${API_BASE}/api/academics/sections/${section.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       toast({ title: "Success", description: "Section deleted" });

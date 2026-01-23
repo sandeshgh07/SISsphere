@@ -10,35 +10,43 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [activeRole, setActiveRole] = useState(localStorage.getItem('activeRole'));
-  const [availableRoles, setAvailableRoles] = useState(JSON.parse(localStorage.getItem('availableRoles') || '[]'));
+  const [availableRoles, setAvailableRoles] = useState(() => {
+    try {
+      const stored = localStorage.getItem('availableRoles');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      console.error("Failed to parse availableRoles", e);
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (token) {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
 
-            // Determine active role: either from storage or token
-            let currentRole = localStorage.getItem('activeRole');
-            if (!currentRole) {
-                currentRole = payload.role;
-                localStorage.setItem('activeRole', currentRole);
-            }
-
-            const roles = JSON.parse(localStorage.getItem('availableRoles') || '[]');
-            // Fallback if availableRoles is empty but we have token
-            const finalRoles = roles.length > 0 ? roles : [payload.role];
-
-            // Set User with the ACTIVE role so the rest of the app sees the context
-            setUser({ ...payload, role: currentRole, roles: finalRoles });
-            setActiveRole(currentRole);
-            setAvailableRoles(finalRoles);
-
-        } catch (e) {
-            console.error("Token parse failed", e);
-            localStorage.removeItem('token');
-            setToken(null);
+        // Determine active role: either from storage or token
+        let currentRole = localStorage.getItem('activeRole');
+        if (!currentRole) {
+          currentRole = payload.role;
+          localStorage.setItem('activeRole', currentRole);
         }
+
+        const roles = JSON.parse(localStorage.getItem('availableRoles') || '[]');
+        // Fallback if availableRoles is empty but we have token
+        const finalRoles = roles.length > 0 ? roles : [payload.role];
+
+        // Set User with the ACTIVE role so the rest of the app sees the context
+        setUser({ ...payload, role: currentRole, roles: finalRoles });
+        setActiveRole(currentRole);
+        setAvailableRoles(finalRoles);
+
+      } catch (e) {
+        console.error("Token parse failed", e);
+        localStorage.removeItem('token');
+        setToken(null);
+      }
     }
     setLoading(false);
   }, [token]);
@@ -80,15 +88,15 @@ export const AuthProvider = ({ children }) => {
   };
 
   const switchRole = (newRole) => {
-      if (!availableRoles.includes(newRole)) return;
+    if (!availableRoles.includes(newRole)) return;
 
-      localStorage.setItem('activeRole', newRole);
-      localStorage.setItem('role', newRole); // Update legacy key just in case
-      setActiveRole(newRole);
+    localStorage.setItem('activeRole', newRole);
+    localStorage.setItem('role', newRole); // Update legacy key just in case
+    setActiveRole(newRole);
 
-      // Soft Refresh: Reload page to clear local state/cache as requested
-      // This ensures components re-mount and fetch fresh data with new role
-      window.location.reload();
+    // Soft Refresh: Reload page to clear local state/cache as requested
+    // This ensures components re-mount and fetch fresh data with new role
+    window.location.reload();
   };
 
   const logout = () => {
@@ -101,7 +109,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, switchRole, availableRoles, activeRole, isAuthenticated: !!token, loading }}>
+    <AuthContext.Provider value={{ user, token, accessToken: token, login, logout, switchRole, availableRoles, activeRole, isAuthenticated: !!token, loading, isHydrated: !loading, getEffectiveRole: () => activeRole, updateTokens: (t) => setToken(t), getAvailableRoles: () => availableRoles, isDualRole: () => availableRoles.length > 1 }}>
       {children}
     </AuthContext.Provider>
   );

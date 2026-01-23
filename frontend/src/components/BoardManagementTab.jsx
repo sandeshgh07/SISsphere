@@ -29,7 +29,7 @@ const BoardManagementTab = () => {
             // Fetch users via axios api instance
             const res = await api.get('/api/users');
             const data = res.data;
-            const boardLevel = data.filter(u => u.role === 'super_admin' || u.role === 'principal');
+            const boardLevel = data.filter(u => u.role === 'superuser' || u.role === 'principal');
             setUsers(boardLevel);
         } catch (err) {
             console.error(err);
@@ -60,7 +60,7 @@ const BoardManagementTab = () => {
     const handleCreateUser = async () => {
         setProcessing(true);
         try {
-            await api.post('/api/governance/users', { ...newUser, role: 'super_admin' });
+            await api.post('/api/governance/users', { ...newUser, role: 'superuser' });
             toast.success("Board member added");
             setAddModalOpen(false);
             setNewUser({ first_name: '', last_name: '', email: '', password: '' });
@@ -105,7 +105,7 @@ const BoardManagementTab = () => {
                                 <TableRow key={u.id}>
                                     <TableCell className="font-medium">{u.full_name}</TableCell>
                                     <TableCell>
-                                        <Badge variant="outline" className={u.role === 'super_admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}>
+                                        <Badge variant="outline" className={u.role === 'superuser' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}>
                                             {u.role.replace('_', ' ').toUpperCase()}
                                         </Badge>
                                     </TableCell>

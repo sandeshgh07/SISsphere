@@ -10,6 +10,10 @@ import NoticesPage from "./NoticesPage";
 import ComplaintsPage from "./ComplaintsPage";
 import AcademicYearsPage from "./AcademicYearsPage";
 import GradesManagementPage from "./GradesManagementPage";
+import GradesManagementPage from "./GradesManagementPage";
+import CheckoutPage from "./CheckoutPage";
+import BoardDashboard from "./BoardDashboard";
+import PrincipalOverview from "@/components/PrincipalOverview";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { ShieldAlert, ChevronDown, RefreshCw, Building2, Calendar } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 // Role display labels
 const ROLE_LABELS = {
@@ -41,29 +45,33 @@ const ROLE_LABELS = {
 // ============================================
 const RBAC_CONFIG = {
   routes: {
-    overview: ["principal", "school_admin", "teacher", "accountant", "parent", "student"],
-    users: ["principal", "school_admin"],
-    students: ["principal", "school_admin", "teacher", "accountant", "parent"],
-    "students/:studentId": ["principal", "school_admin", "teacher", "accountant", "parent"],
-    fees: ["principal", "school_admin", "accountant"],
-    notices: ["principal", "school_admin", "teacher", "accountant", "parent", "student"],
-    complaints: ["principal", "school_admin", "teacher", "parent"],  // Phase 6.1: Added parent
-    reports: ["principal", "school_admin"],
-    "audit-logs": ["principal", "school_admin"],
+    overview: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
+    users: ["principal", "super_admin"],
+    students: ["principal", "super_admin", "teacher", "accountant", "parent"],
+    "students/:studentId": ["principal", "super_admin", "teacher", "accountant", "parent"],
+    fees: ["principal", "super_admin", "accountant"],
+    notices: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
+    complaints: ["principal", "super_admin", "teacher", "parent"],  // Phase 6.1: Added parent
+    reports: ["principal", "super_admin"],
+    "audit-logs": ["principal", "super_admin"],
     "academic-years": ["principal"],  // Phase 7C: Academic Year management
     "grades": ["principal"],  // Grade & Section Management
+    "checkout": ["principal", "super_admin", "accountant", "school_admin"],
+    "board-analytics": ["super_admin", "board"], // Executive Dashboard
   },
   sidebar: {
-    overview: ["principal", "school_admin", "teacher", "accountant", "parent", "student"],
-    users: ["principal", "school_admin"],
-    students: ["principal", "school_admin", "teacher", "accountant", "parent"],
-    fees: ["principal", "school_admin", "accountant"],
-    notices: ["principal", "school_admin", "teacher", "accountant", "parent", "student"],
-    complaints: ["principal", "school_admin", "teacher", "parent"],  // Phase 6.1: Added parent
-    reports: ["principal", "school_admin"],
-    "audit-logs": ["principal", "school_admin"],
+    overview: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
+    users: ["principal", "super_admin"],
+    students: ["principal", "super_admin", "teacher", "accountant", "parent"],
+    fees: ["principal", "super_admin", "accountant"],
+    notices: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
+    complaints: ["principal", "super_admin", "teacher", "parent"],  // Phase 6.1: Added parent
+    reports: ["principal", "super_admin"],
+    "audit-logs": ["principal", "super_admin"],
     "academic-years": ["principal"],  // Phase 7C: Academic Year management
     "grades": ["principal"],  // Grade & Section Management
+    "checkout": ["principal", "super_admin", "accountant", "school_admin"],
+    "board-analytics": ["super_admin", "board"], // Executive Dashboard
   },
 };
 
@@ -78,6 +86,8 @@ const ROUTE_CONFIG = {
   "audit-logs": { title: "Audit Logs", id: "nav-audit-logs" },
   "academic-years": { title: "Academic Years", id: "nav-academic-years" },
   "grades": { title: "Grades & Sections", id: "nav-grades" },
+  "checkout": { title: "Checkout", id: "nav-checkout" },
+  "board-analytics": { title: "Board Room", id: "nav-board-analytics" },
 };
 
 function canAccessRoute(role, route) {
@@ -166,9 +176,8 @@ function RoleSwitcher({ user, onSwitch, switching }) {
           <DropdownMenuItem
             key={role}
             onClick={() => role !== currentRole && onSwitch(role)}
-            className={`text-slate-300 hover:bg-slate-800 cursor-pointer ${
-              role === currentRole ? "bg-slate-800 font-medium" : ""
-            }`}
+            className={`text-slate-300 hover:bg-slate-800 cursor-pointer ${role === currentRole ? "bg-slate-800 font-medium" : ""
+              }`}
           >
             {ROLE_LABELS[role] || role}
             {role === currentRole && " ✓"}
@@ -220,6 +229,31 @@ function Overview() {
     }
   }, [accessToken, isHydrated]);
 
+  // Fetch Critical Notices for Banner
+  const [criticalNotices, setCriticalNotices] = useState([]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const loadCritical = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/api/notices`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const all = Array.isArray(res.data) ? res.data : [];
+        const now = new Date();
+        const filtered = all.filter(n => {
+          if (n.priority !== "CRITICAL") return false;
+          // Active Check (Server does filtering for non-admins, but admins get all. We must double check for banner.)
+          if (n.expires_at && new Date(n.expires_at) <= now) return false;
+          if (n.scheduled_at && new Date(n.scheduled_at) > now) return false;
+          return true;
+        });
+        setCriticalNotices(filtered);
+      } catch (e) { console.error("Critical notice fetch failed", e); }
+    };
+    loadCritical();
+  }, [accessToken]);
+
   // Loading state
   if (!isHydrated || loading) {
     return (
@@ -232,9 +266,14 @@ function Overview() {
     );
   }
 
+  // Use PrincipalOverview for principal and super_admin roles (after hydration is complete)
+  if (effectiveRole === "principal" || effectiveRole === "super_admin") {
+    return <PrincipalOverview />;
+  }
+
   // Role-based card visibility
-  const canSeeFinancials = effectiveRole && ["principal", "school_admin", "accountant"].includes(effectiveRole);
-  const canSeeStudents = effectiveRole && ["principal", "school_admin", "teacher", "accountant"].includes(effectiveRole);
+  const canSeeFinancials = effectiveRole && ["principal", "super_admin", "accountant"].includes(effectiveRole);
+  const canSeeStudents = effectiveRole && ["principal", "super_admin", "teacher", "accountant"].includes(effectiveRole);
 
   const cards = [
     canSeeStudents && {
@@ -339,7 +378,7 @@ function Overview() {
                 </CardContent>
               </Card>
             ))}
-            
+
             {/* Total Outstanding */}
             {summary.total_outstanding > 0 && (
               <Card className="bg-red-900/30 border-red-700">
@@ -384,6 +423,42 @@ function Overview() {
           <p className="text-sm text-slate-300">{getWelcomeMessage()}</p>
         </CardContent>
       </Card>
+
+      {/* Critical Notices Banner */}
+      {criticalNotices.length > 0 && (
+        <div className="space-y-4">
+          {criticalNotices.map(notice => (
+            <Card key={notice.id} className="bg-red-50 border-red-200 shadow-sm relative overflow-hidden">
+              <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-600" />
+              <CardContent className="p-4 pl-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-red-600 text-white hover:bg-red-700 border-none">
+                      <ShieldAlert className="w-3 h-3 mr-1" />
+                      CRITICAL NOTICE
+                    </Badge>
+                    <span className="text-xs text-red-700 font-medium flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {new Date(notice.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900 leading-tight">
+                    {notice.title}
+                  </h3>
+                  <p className="text-slate-600 line-clamp-1 text-sm">
+                    {notice.content}
+                  </p>
+                </div>
+                <NavLink to={`/school/notices?noticeId=${notice.id}`}>
+                  <Button size="sm" className="bg-white text-red-700 border border-red-200 hover:bg-red-50 hover:text-red-800 shadow-sm shrink-0">
+                    View Details
+                  </Button>
+                </NavLink>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {cards.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -432,7 +507,7 @@ function SchoolDashboard() {
       const res = await axios.get(`${API_BASE}/api/dashboard/summary`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      
+
       if (res.data?.school_name) {
         setSchoolInfo({
           name: res.data.school_name,
@@ -527,8 +602,7 @@ function SchoolDashboard() {
             key={config.id}
             to={`/school/${path}`}
             className={({ isActive }) =>
-              `block px-3 py-2 rounded-full text-sm ${
-                isActive ? "bg-white/10 text-white font-medium" : "text-gray-300 hover:bg-white/5"
+              `block px-3 py-2 rounded-full text-sm ${isActive ? "bg-white/10 text-white font-medium" : "text-gray-300 hover:bg-white/5"
               }`
             }
           >
@@ -560,9 +634,9 @@ function SchoolDashboard() {
                   )}
                   <span className="text-sm font-medium text-slate-200">{schoolInfo.name}</span>
                 </div>
-                 {/* National Flag Placeholder (Top-Right in instructions, but putting it near logo for context if preferred, or floating right) */}
-                 {/* Requirement says Top-Right of Global Header. This is the main content header. */}
-                 {/* I will add it to the right side next to logout. */}
+                {/* National Flag Placeholder (Top-Right in instructions, but putting it near logo for context if preferred, or floating right) */}
+                {/* Requirement says Top-Right of Global Header. This is the main content header. */}
+                {/* I will add it to the right side next to logout. */}
                 <span className="text-slate-600">/</span>
               </>
             )}
@@ -573,11 +647,11 @@ function SchoolDashboard() {
           <div className="flex items-center gap-4">
             {/* National Flag */}
             <span className="text-2xl" role="img" aria-label="Flag">
-               {schoolInfo?.country === 'India' ? '🇮🇳' :
+              {schoolInfo?.country === 'India' ? '🇮🇳' :
                 schoolInfo?.country === 'USA' ? '🇺🇸' :
-                schoolInfo?.country === 'UK' ? '🇬🇧' :
-                schoolInfo?.country === 'Australia' ? '🇦🇺' :
-                '🇳🇵'}
+                  schoolInfo?.country === 'UK' ? '🇬🇧' :
+                    schoolInfo?.country === 'Australia' ? '🇦🇺' :
+                      '🇳🇵'}
             </span>
             {/* Role Switcher */}
             <RoleSwitcher user={user} onSwitch={handleRoleSwitch} switching={switching} />
@@ -661,6 +735,14 @@ function SchoolDashboard() {
               }
             />
             <Route
+              path="board-analytics"
+              element={
+                <ProtectedRoute route="board-analytics" userRole={effectiveRole}>
+                  <BoardDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="academic-years"
               element={
                 <ProtectedRoute route="academic-years" userRole={effectiveRole}>
@@ -673,6 +755,14 @@ function SchoolDashboard() {
               element={
                 <ProtectedRoute route="grades" userRole={effectiveRole}>
                   <GradesManagementPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="checkout"
+              element={
+                <ProtectedRoute route="checkout" userRole={effectiveRole}>
+                  <CheckoutPage />
                 </ProtectedRoute>
               }
             />

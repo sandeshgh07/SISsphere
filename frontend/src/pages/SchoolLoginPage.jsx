@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { Building2, Loader2, AlertCircle } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL;
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 /**
  * Phase 7A: School-Specific Login Page
@@ -23,6 +23,25 @@ function SchoolLoginPage() {
   const { schoolSlug } = useParams();
   const navigate = useNavigate();
   const { login, accessToken, user, isHydrated, getEffectiveRole } = useAuth();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    console.log("DEBUG LOGIN: useEffect triggered", { isHydrated, accessToken: !!accessToken, user: !!user });
+    if (isHydrated && accessToken && user) {
+      const effectiveRole = getEffectiveRole ? getEffectiveRole() : user.role;
+      console.log("DEBUG LOGIN: Redirecting based on role:", effectiveRole);
+      // Determine where to redirect based on role
+      // Determine where to redirect based on role
+      if (effectiveRole === "superuser" || effectiveRole === "SUPER_USER" || effectiveRole === "platform_owner") {
+        // Allow Platform Owner to view the login page (for testing/inspection)
+        console.log("DEBUG LOGIN: Superuser detected, staying on login page");
+        return;
+      } else {
+        // Force full reload to avoid routing issues (like double slashes) and ensure fresh state
+        window.location.href = "/dashboard";
+      }
+    }
+  }, [isHydrated, accessToken, user, navigate, getEffectiveRole]);
 
   const [schoolInfo, setSchoolInfo] = useState(null);
   const [loadingSchool, setLoadingSchool] = useState(true);
@@ -43,7 +62,7 @@ function SchoolLoginPage() {
       }
 
       try {
-        const res = await axios.get(`${API_BASE}/api/public/schools/by-slug/${schoolSlug}`);
+        const res = await axios.get(`/api/public/schools/by-slug/${schoolSlug}`);
         setSchoolInfo(res.data);
         setSchoolError("");
       } catch (err) {
@@ -61,17 +80,12 @@ function SchoolLoginPage() {
     fetchSchool();
   }, [schoolSlug]);
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (isHydrated && accessToken && user) {
-      const effectiveRole = getEffectiveRole();
-      if (effectiveRole === "superuser") {
-        navigate("/superadmin", { replace: true });
-      } else {
-        navigate("/school/overview", { replace: true });
-      }
-    }
-  }, [isHydrated, accessToken, user, navigate, getEffectiveRole]);
+
+  // NOTE: We intentionally do NOT auto-redirect logged-in users here.
+  // The school login page should always show so users can:
+  // 1. See the school-specific branding
+  // 2. Login with different credentials for this specific school
+  // 3. The platform owner testing won't be auto-redirected
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -79,12 +93,15 @@ function SchoolLoginPage() {
 
     setError("");
     setSubmitting(true);
-    
+
     try {
       // Use school-specific login
+      console.log("DEBUG LOGIN: Attempting login...");
       await login(email, password, schoolInfo.id);
+      console.log("DEBUG LOGIN: Login successful (await returned)");
       // Navigation will happen via the useEffect above
     } catch (err) {
+      console.error("DEBUG LOGIN: Login failed", err);
       const detail = err.response?.data?.detail;
       if (detail?.includes("not associated with this school")) {
         setError("Your account is not registered with this school. Please check if you're on the correct school's login page.");
@@ -134,7 +151,18 @@ function SchoolLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative">
+      {/* Country Flag (Top Right) */}
+      {schoolInfo?.country && (
+        <div className="absolute top-4 right-4 text-4xl" title={schoolInfo.country}>
+          {schoolInfo.country === 'India' ? '🇮🇳' :
+            schoolInfo.country === 'USA' ? '🇺🇸' :
+              schoolInfo.country === 'UK' ? '🇬🇧' :
+                schoolInfo.country === 'Australia' ? '🇦🇺' :
+                  '🇳🇵'}
+        </div>
+      )}
+
       <Card className="w-full max-w-md bg-slate-900 border-slate-700">
         <CardHeader className="text-center space-y-4">
           {/* School Branding */}
@@ -154,7 +182,7 @@ function SchoolLoginPage() {
               </div>
             )}
             <div>
-              <CardTitle className="text-2xl text-slate-100">
+              <CardTitle className="text-2xl text-slate-100" data-testid="institutional-heading">
                 {schoolInfo?.name}
               </CardTitle>
               <CardDescription className="text-slate-400 mt-1">
@@ -204,6 +232,7 @@ function SchoolLoginPage() {
             <Button
               type="submit"
               disabled={submitting}
+              data-testid="login-submit sign-in-button"
               className="w-full bg-blue-600 hover:bg-blue-500 text-white"
             >
               {submitting ? (
