@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, ForeignKey, Date, DateTime, Enum, Index
+from sqlalchemy import Column, String, ForeignKey, Date, DateTime, Enum, Index, UniqueConstraint
 from database import Base
 
 def generate_uuid():
@@ -21,10 +21,17 @@ class Attendance(Base):
     status = Column(Enum(AttendanceStatus), nullable=False)
     date = Column(Date, nullable=False)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    
+    recorded_by_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    note = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_attendance_school_student_date", "school_id", "student_id", "date"),
         Index("idx_attendance_school_grade_section_date", "school_id", "grade_id", "section_id", "date"),
+        Index("idx_attendance_recorded_by", "school_id", "recorded_by_user_id"),
+        UniqueConstraint('school_id', 'date', 'section_id', 'student_id', name='uq_attendance_student_day'),
     )
 
 class GatePassType(str, enum.Enum):

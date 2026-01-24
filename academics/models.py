@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, Index, Boolean, Date, UniqueConstraint, Enum, JSON, Float, Text
+from sqlalchemy import Column, String, ForeignKey, Integer, Index, Boolean, Date, UniqueConstraint, Enum, JSON, Float, Text, DateTime
 from database import Base
 import uuid
 import enum
@@ -224,6 +224,17 @@ class Assessment(Base):
     assessment_type_id = Column(String, ForeignKey("assessment_types.id"), nullable=True) 
     
     max_marks = Column(Integer, nullable=False)
+    
+    # Enhanced Fields for Assignments/Homework
+    description = Column(Text, nullable=True)
+    due_date = Column(DateTime, nullable=True)
+    
+    # Scoping
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=True) # If null, implies subject scope (all sections)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=True) # If set, specific to this section
+    
+    created_by_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index("idx_assessments_school_term_subject", "school_id", "exam_term_id", "subject_id"),

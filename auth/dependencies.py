@@ -162,9 +162,16 @@ def get_current_active_user(current_user: school_models.User = Depends(get_curre
     return current_user
 
 class TenantAccess:
-    def __init__(self, user: school_models.User = Depends(get_current_active_user)):
+    def __init__(
+        self, 
+        user: school_models.User = Depends(get_current_active_user),
+        x_school_id: Optional[str] = Header(None)
+    ):
         self.user = user
-        self.school_id = user.school_id
+        if user.role == Roles.SUPER_USER and x_school_id:
+            self.school_id = x_school_id
+        else:
+            self.school_id = str(user.school_id) if user.school_id else None
 
     def verify_school_access(self, school_id: str):
         if self.school_id != school_id and self.user.role != Roles.SUPER_USER:

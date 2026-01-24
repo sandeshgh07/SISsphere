@@ -294,7 +294,7 @@ def acknowledge_notice(
     # Check if already acked
     existing = db.query(comm_models.NoticeAck).filter(
         comm_models.NoticeAck.notice_id == notice_id,
-        comm_models.NoticeAck.user_id == user.id
+        comm_models.NoticeAck.user_id == str(user.id)
     ).first()
     
     if existing:
@@ -302,7 +302,7 @@ def acknowledge_notice(
     
     ack = comm_models.NoticeAck(
         notice_id=notice_id,
-        user_id=user.id,
+        user_id=str(user.id),
         ack_at=datetime.now(timezone.utc)
     )
     db.add(ack)

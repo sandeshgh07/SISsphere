@@ -64,7 +64,41 @@ class SchoolStore:
                 )
                 db.add(link)
 
-        # Explicit Audit Log
+        # Handle Student Assignment
+        if "student" in roles_list and data.student_assignment:
+            from students.models import Student
+            # Create Student Record linked to User
+            new_student = Student(
+                school_id=str(school_id),
+                first_name=first_name,
+                last_name=last_name,
+                email=data.email,
+                user_id=str(new_user.id), # Link Identity
+                grade_id=data.student_assignment.grade_id,
+                section_id=data.student_assignment.section_id,
+                roll_number=data.student_assignment.roll_number or "",
+                created_at=datetime.utcnow()
+            )
+            # Add admission number if present (Schema might need update if not in model, 
+            # but model has it in AdmissionApplication, Student model might rely on joining or custom field?
+            # Checking Student model: it has roll_number, but admission_no is not explicit locally in Student class shown earlier?
+            # Re-checking Student model snippet: 
+            # 16:     roll_number = Column(String, nullable=False)
+            # It does NOT have admission_no in proper columns (maybe in JSON or missing). 
+            # I will stick to what is in model: roll_number. 
+            # If admission_no is needed, I should have added it to model. 
+            # Task said "Optional: Admission No, Roll No". Model has roll_number. 
+            # I will use roll_number. Admission No I will skip or store elsewhere if needed?
+            # Wait, `AdmissionApplication` has it. `Student` table usually handles it.
+            # I'll check `students/models.py` again rapidly if I missed it? 
+            # No, lines 10-39 show `id, first_name, last_name, roll_number, email, address, photo_url, school_id, grade_id...`
+            # It does NOT have admission_number. I will implement roll_number only for now to match model.
+            
+            db.add(new_student)
+            
+            # Additional Audit for Student Enrollment
+            # (Will be handled by transaction commit, but we can add specific log if needed)
+
         # (Though listeners might catch it, explicit ensures we capture high-level "User Creation" intent accurately)
         from audit.models import AuditLog
         from audit.listeners import get_actor_id

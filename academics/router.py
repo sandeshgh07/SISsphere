@@ -689,6 +689,58 @@ def get_academic_structure(
 
     return structure
 
+# Grade With Sections (Optimized for Dropdowns)
+class SectionSimple(BaseModel):
+    id: str
+    name: str
+
+class GradeWithSections(BaseModel):
+    id: str
+    name: str
+    sections: List[SectionSimple]
+
+@router.get("/grades-with-sections", response_model=List[GradeWithSections])
+def list_grades_with_sections(
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    grades = db.query(academic_models.Grade).filter(
+        academic_models.Grade.school_id == str(tenant.school_id)
+    ).order_by(academic_models.Grade.sequence).all()
+    
+    sections = db.query(academic_models.Section).filter(
+        academic_models.Section.school_id == str(tenant.school_id)
+    ).all()
+    
+    links = db.query(academic_models.GradeSection).filter(
+        academic_models.GradeSection.school_id == str(tenant.school_id)
+    ).all()
+    
+    section_map = {s.id: s for s in sections}
+    grade_section_map = {}
+    for link in links:
+        if link.grade_id not in grade_section_map:
+            grade_section_map[link.grade_id] = []
+        grade_section_map[link.grade_id].append(link.section_id)
+        
+    result = []
+    for grade in grades:
+        g_sections = []
+        if grade.id in grade_section_map:
+             for s_id in grade_section_map[grade.id]:
+                 if s_id in section_map:
+                     s = section_map[s_id]
+                     g_sections.append(SectionSimple(id=s.id, name=s.name))
+        
+        result.append(GradeWithSections(
+            id=grade.id,
+            name=grade.name,
+            sections=g_sections
+        ))
+        
+    return result
+
 @router.post("/grades/{grade_id}/sections")
 def link_grade_section(
     grade_id: str,
@@ -798,6 +850,9 @@ def promote_students(
                 continue 
 
             current_grade = grade_map.get(student.grade_id)
+
+
+
             if not current_grade:
                 continue
 
@@ -1272,3 +1327,83 @@ def bulk_enter_scores(
 
     db.commit()
     return {"message": "Scores updated and final grades recalculated"}
+
+# --- STUDENT ASSESSMENTS ENDPOINT ---
+
+class StudentAssessmentView(BaseModel):
+    id: str
+    title: str
+    description: Optional[str]
+    subject_name: str
+    due_date: Optional[datetime]
+    max_marks: int
+    status: str = "PENDING" # Placeholder for future submission status
+    
+@router.get("/assessments/student/me", response_model=List[StudentAssessmentView])
+def get_my_assessments(
+    range: str = Query("upcoming", enum=["upcoming", "past", "all"]),
+    db: Session = Depends(get_db),
+    user: school_models.User = Depends(require_roles(Roles.STUDENT)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    """
+    Get assessments for the logged-in student.
+    Filters by student's grade/section scope.
+    """
+    # 1. Resolve Student
+    student = db.query(student_models.Student).filter(
+        student_models.Student.user_id == str(user.id),
+        student_models.Student.school_id == str(tenant.school_id)
+    ).first()
+    
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+
+    # 2. Base Query
+    query = db.query(academic_models.Assessment, academic_models.Subject).join(
+        academic_models.Subject, academic_models.Subject.id == academic_models.Assessment.subject_id
+    ).filter(
+        academic_models.Assessment.school_id == str(tenant.school_id)
+    )
+
+    # 3. Apply Scoping Rules
+    # Logic: Assessment must target (My Section OR My Grade OR Global)
+    # AND Subject must match? Usually subject is implicitly scoped by grade.
+    
+    # Clause: 
+    # (section_id == student.section_id) OR (section_id IS NULL AND grade_id == student.grade_id) OR (section_id IS NULL AND grade_id IS NULL)
+    
+    from sqlalchemy import or_, and_
+    
+    scope_filter = or_(
+        academic_models.Assessment.section_id == student.section_id,
+        and_(academic_models.Assessment.section_id == None, academic_models.Assessment.grade_id == student.grade_id),
+        and_(academic_models.Assessment.section_id == None, academic_models.Assessment.grade_id == None)
+    )
+    query = query.filter(scope_filter)
+
+    # 4. Date Filter
+    now = datetime.now(timezone.utc)
+    if range == "upcoming":
+        query = query.filter(academic_models.Assessment.due_date >= now).order_by(academic_models.Assessment.due_date.asc())
+    elif range == "past":
+        query = query.filter(academic_models.Assessment.due_date < now).order_by(academic_models.Assessment.due_date.desc())
+    else:
+        query = query.order_by(academic_models.Assessment.due_date.desc())
+
+    results = query.all()
+    
+    # 5. Transform
+    response = []
+    for assess, subj in results:
+        response.append(StudentAssessmentView(
+            id=assess.id,
+            title=assess.name,
+            description=assess.description,
+            subject_name=subj.name,
+            due_date=assess.due_date,
+            max_marks=assess.max_marks,
+            status="PENDING" # To be implemented with submissions table
+        ))
+        
+    return response

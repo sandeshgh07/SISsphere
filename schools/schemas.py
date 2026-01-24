@@ -42,6 +42,12 @@ class SchoolOut(BaseModel):
     class Config:
         from_attributes = True
 
+class StudentAssignment(BaseModel):
+    grade_id: str
+    section_id: str
+    roll_number: Optional[str] = None
+    admission_number: Optional[str] = None
+
 class UserCreateRequest(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
@@ -52,7 +58,8 @@ class UserCreateRequest(BaseModel):
     roles: list[str] = []
     phone: str | None = None
     school_id: UUID | None = None
-    children_ids: list[UUID] = [] 
+    children_ids: list[UUID] = []
+    student_assignment: Optional[StudentAssignment] = None
 
     class Config:
         extra = "ignore"

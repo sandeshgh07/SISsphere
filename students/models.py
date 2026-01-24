@@ -24,6 +24,9 @@ class Student(Base):
     section_id = Column(String, ForeignKey("sections.id"), nullable=True)
     academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=True)
 
+    # Link to Identity User
+    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=True)
+
     retention_flag = Column(Boolean, default=False) # Manual override for promotion
 
     pickup_blocked = Column(Boolean, default=False)
@@ -120,3 +123,64 @@ class GateLog(Base):
     scanned_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     type = Column(Enum(GateLogType), nullable=False)
+
+# --- Student 360 Models ---
+
+class IncidentType(str, enum.Enum):
+    DISCIPLINE = "discipline"
+    BULLYING = "bullying"
+    PROPERTY_DAMAGE = "property_damage"
+    LATE = "late"
+    OTHER = "other"
+
+class IncidentSeverity(str, enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+class BehaviorIncident(Base):
+    __tablename__ = "behavior_incidents"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False)
+    reported_by_user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    
+    incident_type = Column(Enum(IncidentType), nullable=False)
+    severity = Column(Enum(IncidentSeverity), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    occurred_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    action_taken = Column(String, nullable=True)
+    status = Column(String, default="open") # open, resolved
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_behavior_school_student", "school_id", "student_id"),
+    )
+
+class DocumentType(str, enum.Enum):
+    REPORT_CARD = "report_card"
+    CERTIFICATE = "certificate"
+    MEDICAL = "medical"
+    OTHER = "other"
+
+class StudentDocument(Base):
+    __tablename__ = "student_documents"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False)
+    uploaded_by_user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    
+    doc_type = Column(Enum(DocumentType), nullable=False)
+    title = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    size_bytes = Column(Integer, default=0)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_docs_school_student", "school_id", "student_id"),
+    )

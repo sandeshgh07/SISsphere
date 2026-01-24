@@ -43,6 +43,10 @@ import {
   GodViewAuditLogs
 } from './pages/godview';
 import ClassAnalytics from './pages/ClassAnalytics';
+import RecordAttendancePage from './pages/RecordAttendancePage';
+import StudentAttendancePage from './pages/StudentAttendancePage';
+import StudentAssessmentsPage from './pages/StudentAssessmentsPage';
+import Student360Profile from './pages/Student360Profile';
 
 import GradingWorkspace from './pages/GradingWorkspace';
 import AccountOverviewPage from './pages/AccountOverviewPage';
@@ -117,6 +121,10 @@ const DashboardHome = () => {
     return <ParentDashboard />;
   }
 
+  if (effectiveRole === "student") {
+    return <StudentDashboard />;
+  }
+
   // Default for other roles
   return (
     <div className="space-y-6">
@@ -177,7 +185,7 @@ function App() {
               <AccountOverviewPage />
             } />
             <Route path="fees" element={
-              <RequireRole forbiddenRoles={['security_guard']}>
+              <RequireRole allowedRoles={['principal', 'super_admin', 'school_admin', 'accountant']}>
                 <FeesPage />
               </RequireRole>
             } />
@@ -218,6 +226,31 @@ function App() {
             <Route path="grading" element={
               <RequireRole allowedRoles={['principal', 'super_admin', 'teacher']}>
                 <GradingWorkspace />
+              </RequireRole>
+            } />
+
+            {/* --- NEW ATTENDANCE & ASSESSMENT ROUTES --- */}
+            <Route path="attendance/record" element={
+              <RequireRole allowedRoles={['teacher', 'principal', 'super_admin']}>
+                <RecordAttendancePage />
+              </RequireRole>
+            } />
+
+            <Route path="attendance" element={
+              <RequireRole allowedRoles={['student']}>
+                <StudentAttendancePage />
+              </RequireRole>
+            } />
+
+            <Route path="assessments" element={
+              <RequireRole allowedRoles={['student']}>
+                <StudentAssessmentsPage />
+              </RequireRole>
+            } />
+
+            <Route path="students/:studentId" element={
+              <RequireRole allowedRoles={['teacher', 'principal', 'super_admin', 'school_admin', 'accountant']}>
+                <Student360Profile />
               </RequireRole>
             } />
           </Route>

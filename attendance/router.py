@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 from sqlalchemy import func, extract, case
 from typing import List, Optional, Dict
-from datetime import date
+from datetime import date, datetime, timezone
+import uuid
 from pydantic import BaseModel
 
 from database import SessionLocal
-from auth.dependencies import get_db, get_current_active_user, require_roles, Roles, TenantAccess
+from auth.dependencies import get_db, require_roles, Roles, TenantAccess, get_current_user
 from attendance.models import Attendance, AttendanceStatus
 from students.models import Student, ParentStudentLink
-from academics.models import TeacherAssignment
+from academics.models import TeacherAssignment, Section, Grade, GradeSection
 from schools.models import User
+from audit.listeners import set_actor_id, set_reason
 
 router = APIRouter(
     prefix="/attendance",
@@ -18,283 +20,291 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-class AttendanceCreate(BaseModel):
-    student_id: str
-    grade_id: str
-    section_id: str
-    status: AttendanceStatus
-    date: date
+# --- SCHEMAS ---
 
-class AttendanceResponse(BaseModel):
+class AttendanceRecordInput(BaseModel):
+    student_id: str
+    status: AttendanceStatus
+    note: Optional[str] = None
+
+class AttendanceBulkCreate(BaseModel):
+    date: date
+    grade_id: Optional[str] = None # Optional if derived from context, but explicit is better
+    section_id: str
+    records: List[AttendanceRecordInput]
+
+class AttendanceSummary(BaseModel):
+    created: int
+    updated: int
+
+class StudentAttendanceStats(BaseModel):
+    summary: dict
+    trend: List[dict]
+    byMonth: List[dict]
+
+class SectionOption(BaseModel):
     id: str
-    student_id: str
+    name: str
     grade_id: str
-    section_id: str
-    status: AttendanceStatus
-    date: date
-    school_id: str
+    grade_name: str
 
-    class Config:
-        from_attributes = True
+class RosterStudent(BaseModel):
+    id: str
+    name: str
+    roll_number: Optional[str]
+    photo_url: Optional[str]
 
-class AttendanceStats(BaseModel):
-    student_id: str
-    present_count: int
-    total_days: int
-    percentage: float
+# --- TEACHER ENDPOINTS ---
 
-class ClassAttendanceStats(BaseModel):
-    date: date
-    present_percentage: float
-
-class AttendanceTrend(BaseModel):
-    month: str
-    percentage: float
-
-@router.post("/", response_model=AttendanceResponse)
-def mark_attendance(
-    attendance_data: AttendanceCreate,
+@router.get("/teacher/context", response_model=List[SectionOption])
+def get_teacher_attendance_context(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.TEACHER, Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
-    tenant_access: TenantAccess = Depends(TenantAccess)
+    user: User = Depends(require_roles(Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, "school_admin")),
+    tenant: TenantAccess = Depends(TenantAccess)
 ):
-    # If teacher, verify assignment
-    if current_user.role == Roles.TEACHER:
-        assignment = db.query(TeacherAssignment).filter(
-            TeacherAssignment.teacher_id == current_user.id,
-            TeacherAssignment.grade_id == attendance_data.grade_id,
-            TeacherAssignment.section_id == attendance_data.section_id,
-            TeacherAssignment.school_id == tenant_access.school_id
-        ).first()
-
-        if not assignment:
-             raise HTTPException(status_code=403, detail="Not assigned to this Grade/Section")
-
-    # Check if student belongs to school and grade/section
-    student = db.query(Student).filter(
-        Student.id == attendance_data.student_id,
-        Student.school_id == tenant_access.school_id
-    ).first()
-
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    if not student.is_active:
-        raise HTTPException(status_code=400, detail="Cannot mark attendance for inactive student")
-
-    if student.grade_id != attendance_data.grade_id or student.section_id != attendance_data.section_id:
-         raise HTTPException(status_code=400, detail="Student does not belong to the specified Grade/Section")
-
-    # Check if attendance already exists for this day
-    existing = db.query(Attendance).filter(
-        Attendance.student_id == attendance_data.student_id,
-        Attendance.date == attendance_data.date,
-        Attendance.school_id == tenant_access.school_id
-    ).first()
-
-    if existing:
-        existing.status = attendance_data.status
-        # Update other fields if necessary
-        db.commit()
-        db.refresh(existing)
-
-        # Trigger notification if updated to ABSENT
-        if existing.status == AttendanceStatus.ABSENT:
-            # Hook for SMS/Push
-            # Fetch parents
-            parents = db.query(User).join(ParentStudentLink, ParentStudentLink.parent_id == User.id).filter(
-                ParentStudentLink.student_id == existing.student_id,
-                ParentStudentLink.school_id == tenant_access.school_id
-            ).all()
-            parent_ids = [p.id for p in parents]
-            student_name = f"{student.first_name} {student.last_name}"
-
-            print(f"[NOTIFICATION HOOK] Student {student_name} (ID: {existing.student_id}) marked ABSENT (Update). Triggering SMS to parents: {parent_ids}")
-
-        return existing
-
-    new_attendance = Attendance(
-        student_id=attendance_data.student_id,
-        grade_id=attendance_data.grade_id,
-        section_id=attendance_data.section_id,
-        status=attendance_data.status,
-        date=attendance_data.date,
-        school_id=tenant_access.school_id
-    )
-    db.add(new_attendance)
-    db.commit()
-    db.refresh(new_attendance)
-
-    # Notification Trigger for ABSENT
-    if new_attendance.status == AttendanceStatus.ABSENT:
-        # Hook for SMS/Push
-        # Fetch parents
-        parents = db.query(User).join(ParentStudentLink, ParentStudentLink.parent_id == User.id).filter(
-            ParentStudentLink.student_id == new_attendance.student_id,
-            ParentStudentLink.school_id == tenant_access.school_id
+    """
+    Returns list of Grade/Sections the teacher can take attendance for.
+    If Teacher: based on assignments.
+    If Admin: all sections.
+    """
+    options = []
+    
+    if user.role == Roles.TEACHER:
+        assignments = db.query(TeacherAssignment).filter(
+            TeacherAssignment.teacher_id == user.id,
+            TeacherAssignment.school_id == tenant.school_id
         ).all()
-        parent_ids = [p.id for p in parents]
-        student_name = f"{student.first_name} {student.last_name}"
+        
+        # We need to resolve Grade/Section details.
+        # Assignments can be Grade-only (all sections) or Grade+Section.
+        
+        for asn in assignments:
+            if asn.section_id:
+                # Specific Section
+                gs_info = db.query(Grade, Section).filter(
+                     Grade.id == asn.grade_id,
+                     Section.id == asn.section_id
+                ).first()
+                if gs_info:
+                    g, s = gs_info
+                    options.append({"id": s.id, "name": s.name, "grade_id": g.id, "grade_name": g.name})
+            elif asn.grade_id:
+                # All sections in Grade
+                # Fetch all sections linked to this grade
+                sections = db.query(Section, GradeSection).join(GradeSection).filter(
+                    GradeSection.grade_id == asn.grade_id,
+                    GradeSection.section_id == Section.id,
+                    Section.school_id == tenant.school_id
+                ).all()
+                # We need Grade name
+                grade = db.query(Grade).get(asn.grade_id)
+                for s, gs in sections:
+                     options.append({"id": s.id, "name": s.name, "grade_id": grade.id, "grade_name": grade.name})
+        
+        # Deduplicate
+        unique_options = {o["id"]: o for o in options}.values()
+        return list(unique_options)
 
-        print(f"[NOTIFICATION HOOK] Student {student_name} (ID: {new_attendance.student_id}) marked ABSENT. Triggering SMS to parents: {parent_ids}")
+    else:
+        # Admins see all sections
+        # Join GradeSection to get Grade info
+        results = db.query(Section, Grade).join(GradeSection, GradeSection.section_id == Section.id)\
+            .join(Grade, GradeSection.grade_id == Grade.id)\
+            .filter(Section.school_id == tenant.school_id).all()
+            
+        for s, g in results:
+             options.append({"id": s.id, "name": s.name, "grade_id": g.id, "grade_name": g.name})
+             
+        return options
 
-    return new_attendance
-
-@router.get("/my-history", response_model=List[AttendanceResponse])
-def get_my_history(
-    student_id: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.STUDENT, Roles.PARENT)),
-    tenant_access: TenantAccess = Depends(TenantAccess)
-):
-    target_student_id = None
-    if current_user.role == Roles.STUDENT:
-        # Assuming current_user is linked to a student profile somehow?
-        # Typically User -> Student might be 1:1 or User is the Student.
-        # But here User table is separate. Let's assume User has email matching Student or there's a link.
-        # For simplicity, if role is STUDENT, we might need a way to find their student_id.
-        # Given existing models don't show User->Student link directly in User,
-        # but Student has email.
-        student = db.query(Student).filter(Student.email == current_user.email, Student.school_id == tenant_access.school_id).first()
-        if not student:
-             raise HTTPException(status_code=404, detail="Student profile not found for user")
-        target_student_id = student.id
-    elif current_user.role == Roles.PARENT:
-        if not student_id:
-            raise HTTPException(status_code=400, detail="student_id required for Parent")
-        # Verify parent link
-        link = db.query(ParentStudentLink).filter(
-            ParentStudentLink.parent_id == current_user.id,
-            ParentStudentLink.student_id == student_id,
-            ParentStudentLink.school_id == tenant_access.school_id
-        ).first()
-        if not link:
-             raise HTTPException(status_code=403, detail="Not authorized for this student")
-        target_student_id = student_id
-
-    history = db.query(Attendance).filter(
-        Attendance.student_id == target_student_id,
-        Attendance.school_id == tenant_access.school_id
-    ).order_by(Attendance.date.desc()).all()
-
-    return history
-
-@router.get("/stats", response_model=ClassAttendanceStats)
-def get_class_stats(
-    grade_id: str,
+@router.get("/teacher/roster", response_model=List[RosterStudent])
+def get_section_roster(
     section_id: str,
-    date: date,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
-    tenant_access: TenantAccess = Depends(TenantAccess)
+    user: User = Depends(require_roles(Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, "school_admin")),
+    tenant: TenantAccess = Depends(TenantAccess)
 ):
-    # Parents can see class percentage, but NOT individual attendance.
-    # We verify if parent has a child in this grade/section?
-    # The rule says: "Parents can see the class attendance percentage"
-    # It implies checking if they have access.
-    # For simplicity, if they are a PARENT in the school, we allow seeing stats (low risk).
-    # Or stricter: check if they have a child in that class.
-
-    if current_user.role == Roles.PARENT:
-         # Check linkage
-         # Find any child in this grade/section
-         child_in_class = db.query(Student).join(ParentStudentLink).filter(
-             ParentStudentLink.parent_id == current_user.id,
-             Student.grade_id == grade_id,
-             Student.section_id == section_id,
-             Student.school_id == tenant_access.school_id
-         ).first()
-         if not child_in_class:
-              raise HTTPException(status_code=403, detail="No child in this class")
-
-    total_attendance = db.query(Attendance).filter(
-        Attendance.grade_id == grade_id,
-        Attendance.section_id == section_id,
-        Attendance.date == date,
-        Attendance.school_id == tenant_access.school_id
-    ).count()
-
-    if total_attendance == 0:
-        return {"date": date, "present_percentage": 0.0}
-
-    present_count = db.query(Attendance).filter(
-        Attendance.grade_id == grade_id,
-        Attendance.section_id == section_id,
-        Attendance.date == date,
-        Attendance.status == AttendanceStatus.PRESENT,
-        Attendance.school_id == tenant_access.school_id
-    ).count()
-
-    percentage = (present_count / total_attendance) * 100
-    return {"date": date, "present_percentage": round(percentage, 2)}
-
-@router.get("/trends", response_model=List[AttendanceTrend])
-def get_attendance_trends(
-    student_id: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.STUDENT, Roles.PARENT, Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN)),
-    tenant_access: TenantAccess = Depends(TenantAccess)
-):
-    target_student_id = None
-    if current_user.role == Roles.STUDENT:
-        student = db.query(Student).filter(Student.email == current_user.email, Student.school_id == tenant_access.school_id).first()
-        if not student:
-             raise HTTPException(status_code=404, detail="Student profile not found")
-        target_student_id = student.id
-    elif current_user.role == Roles.PARENT:
-        if not student_id:
-            raise HTTPException(status_code=400, detail="student_id required")
-        link = db.query(ParentStudentLink).filter(
-            ParentStudentLink.parent_id == current_user.id,
-            ParentStudentLink.student_id == student_id,
-            ParentStudentLink.school_id == tenant_access.school_id
+    """
+    Get students for a specific section (to populate attendance form).
+    Security: Verify teacher assignment.
+    """
+    # 1. Verify Access
+    if user.role == Roles.TEACHER:
+        # Check if teacher assigned to this section (directly or via grade)
+        # Find grade of this section first
+        gs = db.query(GradeSection).filter(GradeSection.section_id == section_id, GradeSection.school_id == tenant.school_id).first()
+        if not gs:
+             raise HTTPException(status_code=404, detail="Section not found")
+        
+        has_access = db.query(TeacherAssignment).filter(
+            TeacherAssignment.teacher_id == user.id,
+            TeacherAssignment.school_id == tenant.school_id,
+            (TeacherAssignment.section_id == section_id) | 
+            ((TeacherAssignment.grade_id == gs.grade_id) & (TeacherAssignment.section_id == None))
         ).first()
-        if not link:
+        
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Not authorized for this section")
+
+    # 2. Fetch Students
+    students = db.query(Student).filter(
+        Student.section_id == section_id,
+        Student.school_id == tenant.school_id,
+        Student.is_active == True
+    ).order_by(Student.roll_number, Student.first_name).all()
+    
+    return [
+        {"id": s.id, "name": f"{s.first_name} {s.last_name}", "roll_number": s.roll_number, "photo_url": s.photo_url}
+        for s in students
+    ]
+
+@router.post("/record", response_model=AttendanceSummary)
+def record_attendance_bulk(
+    payload: AttendanceBulkCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Roles.TEACHER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, "school_admin")),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    """
+    Bulk upsert attendance records.
+    Idempotent per (school, date, section, student).
+    """
+    # Set Audit Context
+    set_actor_id(user.id)
+    set_reason(f"Bulk Attendance Record: {payload.date} / Section {payload.section_id}")
+
+    # 1. Access Check (Reuse roster logic or simplify)
+    if user.role == Roles.TEACHER:
+         # Find grade of this section
+        gs = db.query(GradeSection).filter(GradeSection.section_id == payload.section_id, GradeSection.school_id == tenant.school_id).first()
+        if not gs:
+             raise HTTPException(status_code=404, detail="Section not found")
+             
+        has_access = db.query(TeacherAssignment).filter(
+            TeacherAssignment.teacher_id == user.id,
+            TeacherAssignment.school_id == tenant.school_id,
+            (TeacherAssignment.section_id == payload.section_id) | 
+            ((TeacherAssignment.grade_id == gs.grade_id) & (TeacherAssignment.section_id == None))
+        ).first()
+        if not has_access:
              raise HTTPException(status_code=403, detail="Not authorized")
-        target_student_id = student_id
-    elif current_user.role == Roles.TEACHER:
-        if not student_id:
-            raise HTTPException(status_code=400, detail="student_id required")
-        # Verify assignment (Assuming if teacher is assigned to student's grade/section they can see trends)
-        student = db.query(Student).filter(Student.id == student_id, Student.school_id == tenant_access.school_id).first()
-        if not student:
-             raise HTTPException(status_code=404, detail="Student not found")
+        
+        # If grade_id not provided, use from GS
+        grade_id_to_use = gs.grade_id
+    else:
+        # Admin
+        grade_id_to_use = payload.grade_id
+        if not grade_id_to_use:
+             # resolve
+             gs = db.query(GradeSection).filter(GradeSection.section_id == payload.section_id).first()
+             if gs: grade_id_to_use = gs.grade_id
 
-        assignment = db.query(TeacherAssignment).filter(
-            TeacherAssignment.teacher_id == current_user.id,
-            TeacherAssignment.grade_id == student.grade_id,
-            TeacherAssignment.school_id == tenant_access.school_id
-        ).all()
-        # Simplified check: if assigned to grade/section
-        valid = False
-        for asn in assignment:
-            if asn.section_id is None or asn.section_id == student.section_id:
-                valid = True
-                break
-        if not valid:
-             raise HTTPException(status_code=403, detail="Not authorized")
-        target_student_id = student_id
-    else: # Admin
-        if not student_id:
-             raise HTTPException(status_code=400, detail="student_id required")
-        target_student_id = student_id
+    created_count = 0
+    updated_count = 0
+    
+    for rec in payload.records:
+        # Upsert Logic
+        existing = db.query(Attendance).filter(
+            Attendance.school_id == tenant.school_id,
+            Attendance.date == payload.date,
+            Attendance.section_id == payload.section_id,
+            Attendance.student_id == rec.student_id
+        ).first()
+        
+        if existing:
+            # Update
+            if existing.status != rec.status or existing.note != rec.note:
+                existing.status = rec.status
+                existing.note = rec.note
+                existing.recorded_by_user_id = str(user.id)
+                existing.updated_at = datetime.now(timezone.utc)
+                updated_count += 1
+        else:
+            # Create
+            new_rec = Attendance(
+                id=str(uuid.uuid4()),
+                school_id=str(tenant.school_id),
+                student_id=rec.student_id,
+                grade_id=grade_id_to_use,
+                section_id=payload.section_id,
+                date=payload.date,
+                status=rec.status,
+                note=rec.note,
+                recorded_by_user_id=str(user.id)
+            )
+            db.add(new_rec)
+            created_count += 1
 
-    # Calculate trends: Group by Month
-    # SQLite strftime('%Y-%m', date)
+    db.commit()
+    return {"created": created_count, "updated": updated_count}
 
-    # We need total days and present days per month
-    results = db.query(
-        func.strftime('%Y-%m', Attendance.date).label('month'),
-        func.count(Attendance.id).label('total'),
-        func.sum(case((Attendance.status == AttendanceStatus.PRESENT, 1), else_=0)).label('present')
-    ).filter(
-        Attendance.student_id == target_student_id,
-        Attendance.school_id == tenant_access.school_id
-    ).group_by('month').order_by('month').all()
+# --- STUDENT ENDPOINTS ---
 
-    trends = []
-    for r in results:
-        percentage = (r.present / r.total * 100) if r.total > 0 else 0
-        trends.append(AttendanceTrend(month=r.month, percentage=round(percentage, 2)))
+@router.get("/student/me", response_model=StudentAttendanceStats)
+def get_my_attendance_stats(
+    range: Optional[str] = "term", # last30, term, year
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Roles.STUDENT)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    """
+    Read-only attendance stats for the calling student.
+    """
+    # Resolve Student
+    student = db.query(Student).filter(
+        Student.user_id == str(user.id),
+        Student.school_id == tenant.school_id
+    ).first()
+    
+    if not student:
+         raise HTTPException(status_code=404, detail="Student profile not found")
 
-    return trends
+    # Date Filter
+    query = db.query(Attendance).filter(
+        Attendance.student_id == student.id,
+        Attendance.school_id == tenant.school_id
+    )
+    
+    from datetime import timedelta
+    today = datetime.now(timezone.utc).date()
+    
+    if range == "last30":
+        start_date = today - timedelta(days=30)
+        query = query.filter(Attendance.date >= start_date)
+    # elif range == "term":
+        # fetch current term start date... mocking for now or assuming start of year
+        # start_date = ...
+        # pass
+    
+    records = query.order_by(Attendance.date.asc()).all()
+    
+    total = len(records)
+    present = sum(1 for r in records if r.status == AttendanceStatus.PRESENT or r.status == AttendanceStatus.LATE)
+    absent = sum(1 for r in records if r.status == AttendanceStatus.ABSENT)
+    late = sum(1 for r in records if r.status == AttendanceStatus.LATE)
+    
+    percent = round((present / total * 100), 1) if total > 0 else 0
+    
+    # Trend (Last 30 days regardless of range param for chart?)
+    # Let's use records from query
+    trend_data = [
+        {"date": r.date, "status": r.status} 
+        for r in records[-30:] # Last 30 entries
+    ]
+    
+    # By Month
+    # Not implemented efficiently here, placeholder
+    by_month = []
+    
+    return {
+        "summary": {
+            "present": present,
+            "absent": absent,
+            "late": late,
+            "excused": 0,
+            "percent": percent
+        },
+        "trend": trend_data,
+        "byMonth": by_month
+    }
+

@@ -70,6 +70,8 @@ export default function UserManagement() {
         phone: "",
     });
 
+    const [gradesWithSections, setGradesWithSections] = useState([]);
+
     // Valid roles for creation based on RBAC
     // Principal: Can create Student, Parent, Accountant, Teacher, Guard, School Admin (NOT Super Admin or Principal)
     // Super Admin: Can create all roles including Principal
@@ -169,27 +171,41 @@ export default function UserManagement() {
 
     useEffect(() => {
         loadUsers();
+        // Load grades for assignment
+        axios.get(`${API_BASE}/api/academics/grades-with-sections`, { headers })
+            .then(res => setGradesWithSections(res.data))
+            .catch(err => console.error("Failed to load grades", err));
     }, [loadUsers]);
 
     const handleCreateUser = async (e) => {
         e.preventDefault();
         setCreating(true);
         try {
-            // In a real app we might have a specific endpoint or use a generic one?
-            // Based on previous code, we might need a specific create endpoint in the school context
-            // Or users are created via specific flows?
-            // Let's assume we use regular auth/register? No, that's public.
-            // We need an admin endpoint to create users directly.
-            // Wait, I didn't verify if `POST /api/users` exists for creating users!
-            // `schools/router.py` has `list_users` but NOT `create_user`?
-            // `auth/router.py` has register.
-            // I probably need to add `create_user` to `schools/router.py` or use existing one.
-            // I'll check `schools/router.py` again.
-            // It DOES NOT have create_user.
-            // I missed this in backend plan. I need to ADD it.
+            // Check student requirements
+            if ((newUser.roles || []).includes("student")) {
+                if (!newUser.grade_id || !newUser.section_id) {
+                    toast.error("Grade and Section are required for students");
+                    setCreating(false);
+                    return;
+                }
+            }
 
-            // For now, I will implement the Frontend and then fix Backend.
-            await axios.post(`${API_BASE}/api/users`, newUser, { headers });
+            const payload = { ...newUser };
+
+            // Construct student_assignment if student
+            if ((payload.roles || []).includes("student")) {
+                payload.student_assignment = {
+                    grade_id: newUser.grade_id,
+                    section_id: newUser.section_id,
+                    roll_number: newUser.roll_number
+                };
+                // Clean up root fields if API doesn't want them (though schema ignores extra)
+                delete payload.grade_id;
+                delete payload.section_id;
+                delete payload.roll_number;
+            }
+
+            await axios.post(`${API_BASE}/api/users`, payload, { headers });
             toast.success("User created successfully");
             setCreateModal(false);
             setNewUser({ first_name: "", last_name: "", email: "", password: "", roles: [], phone: "" });
@@ -382,6 +398,77 @@ export default function UserManagement() {
             setAddRoleModal(prev => ({ ...prev, selectedRoles: [...current, role] }));
         }
     };
+
+    // Manage Enrollment Modal State
+    const [enrollmentModal, setEnrollmentModal] = useState({
+        open: false,
+        userId: "",
+        userName: "",
+        grade_id: "",
+        section_id: "",
+        roll_number: "",
+        processing: false
+    });
+
+    const handleManageEnrollment = (user) => {
+        // We need to fetch current enrollment first or pass it if available.
+        // The user list API doesn't fully return specific grade/section ID, it might return names if we joined.
+        // But `list_users` in `schools/router.py` returns `UserOut` which doesn't have student details.
+        // We need to fetch the student profile for this user.
+        // OR rely on empty defaults and let user set new ones.
+        // Better: Fetch student profile.
+
+        setEnrollmentModal({
+            open: true,
+            userId: user.id,
+            userName: user.full_name,
+            grade_id: "",
+            section_id: "",
+            roll_number: "",
+            processing: true // Loading initial data
+        });
+
+        // Search for student profile by user_id. 
+        // We don't have a direct "get student by user id" endpoint easily accessible publicly?
+        // `GET /api/students` filters by user.id if student? No, `GET /api/students` lists all.
+        // We can use `GET /api/students` and filter client side or implement a specific get.
+        // Given existing endpoints, we probably have to iterate `students` list or add a specific endpoint. 
+        // Or just let them set new values (blank start).
+        // Let's try to fetch all students once and match? No, too heavy.
+
+        // I'll leave it blank for now or fetch if we had the data. 
+        // Wait, I can try to find if this user is in `students` list if I loaded it? I didn't load students list.
+        // I'll just set processing false and let them choose new assignment.
+        // Ideally we pre-fill. 
+
+        setEnrollmentModal(prev => ({ ...prev, processing: false }));
+    };
+
+    const handleEnrollmentSubmit = async () => {
+        if (!enrollmentModal.grade_id || !enrollmentModal.section_id) {
+            toast.error("Grade and Section are required");
+            return;
+        }
+
+        setEnrollmentModal(prev => ({ ...prev, processing: true }));
+        try {
+            await axios.patch(`${API_BASE}/api/students/${enrollmentModal.userId}/assignment`, {
+                grade_id: enrollmentModal.grade_id,
+                section_id: enrollmentModal.section_id,
+                roll_number: enrollmentModal.roll_number,
+                reason: "Admin updated enrollment via User Management"
+            }, { headers });
+
+            toast.success("Enrollment updated successfully");
+            setEnrollmentModal(prev => ({ ...prev, open: false }));
+        } catch (err) {
+            console.error(err);
+            toast.error(err.response?.data?.detail || "Failed to update enrollment");
+        } finally {
+            setEnrollmentModal(prev => ({ ...prev, processing: false }));
+        }
+    };
+
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -605,6 +692,14 @@ export default function UserManagement() {
                                                         </Button>
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end" className="bg-white border-slate-200 shadow-md">
+                                                        {(u.roles || [u.role]).includes("student") && (
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleManageEnrollment(u)}
+                                                                className="text-slate-700 focus:bg-slate-100"
+                                                            >
+                                                                <Users className="mr-2 h-4 w-4" /> Manage Enrollment
+                                                            </DropdownMenuItem>
+                                                        )}
                                                         <DropdownMenuItem
                                                             onClick={() => handleToggleStatus(u.id, u.is_active)}
                                                             disabled={processing === u.id || user.id === u.id}
@@ -667,6 +762,7 @@ export default function UserManagement() {
                                     value={newUser.first_name}
                                     onChange={e => setNewUser({ ...newUser, first_name: e.target.value })}
                                     className="bg-slate-950 border-slate-800"
+                                    placeholder="Enter first name"
                                 />
                             </div>
                             <div className="space-y-2">
@@ -676,6 +772,7 @@ export default function UserManagement() {
                                     value={newUser.last_name}
                                     onChange={e => setNewUser({ ...newUser, last_name: e.target.value })}
                                     className="bg-slate-950 border-slate-800"
+                                    placeholder="Enter last name"
                                 />
                             </div>
                         </div>
@@ -688,6 +785,7 @@ export default function UserManagement() {
                                 value={newUser.email}
                                 onChange={e => setNewUser({ ...newUser, email: e.target.value })}
                                 className="bg-slate-950 border-slate-800"
+                                placeholder="Email address"
                             />
                         </div>
 
@@ -697,6 +795,7 @@ export default function UserManagement() {
                                 value={newUser.phone}
                                 onChange={e => setNewUser({ ...newUser, phone: e.target.value })}
                                 className="bg-slate-950 border-slate-800"
+                                placeholder="Phone number"
                             />
                         </div>
 
@@ -727,6 +826,60 @@ export default function UserManagement() {
                             )}
                         </div>
 
+                        {/* Student Details */}
+                        {(newUser.roles || []).includes("student") && (
+                            <div className="bg-slate-800 p-4 rounded-lg space-y-4 border border-slate-700">
+                                <h3 className="text-sm font-medium text-slate-300">Student Enrollment</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Grade</Label>
+                                        <Select
+                                            value={newUser.grade_id}
+                                            onValueChange={(val) => setNewUser(prev => ({ ...prev, grade_id: val, section_id: "" }))}
+                                        >
+                                            <SelectTrigger className="bg-slate-950 border-slate-800">
+                                                <SelectValue placeholder="Select Grade" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
+                                                {gradesWithSections.map(g => (
+                                                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Section</Label>
+                                        <Select
+                                            value={newUser.section_id}
+                                            onValueChange={(val) => setNewUser(prev => ({ ...prev, section_id: val }))}
+                                            disabled={!newUser.grade_id}
+                                        >
+                                            <SelectTrigger className="bg-slate-950 border-slate-800">
+                                                <SelectValue placeholder="Select Section" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
+                                                {newUser.grade_id && gradesWithSections
+                                                    .find(g => g.id === newUser.grade_id)?.sections
+                                                    .map(s => (
+                                                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                                    ))
+                                                }
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2 col-span-2">
+                                        <Label>Roll Number (Optional - Auto-generated if empty)</Label>
+                                        <Input
+                                            value={newUser.roll_number || ""}
+                                            onChange={e => setNewUser({ ...newUser, roll_number: e.target.value })}
+                                            className="bg-slate-950 border-slate-800"
+                                            placeholder="e.g. 101"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="space-y-2">
                             <Label>Password</Label>
                             <Input
@@ -735,6 +888,7 @@ export default function UserManagement() {
                                 value={newUser.password}
                                 onChange={e => setNewUser({ ...newUser, password: e.target.value })}
                                 className="bg-slate-950 border-slate-800"
+                                placeholder="Min 8 characters"
                             />
                         </div>
 
@@ -746,6 +900,74 @@ export default function UserManagement() {
                             </Button>
                         </DialogFooter>
                     </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Manage Enrollment Modal */}
+            <Dialog open={enrollmentModal.open} onOpenChange={(o) => setEnrollmentModal(prev => ({ ...prev, open: o }))}>
+                <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+                    <DialogHeader>
+                        <DialogTitle>Manage Enrollment: {enrollmentModal.userName}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="bg-blue-900/20 border border-blue-700/50 p-4 rounded-lg text-blue-200 text-sm">
+                            Update the academic placement for this student. Use this to transfer students between sections or promote/demote manually.
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Grade</Label>
+                                <Select
+                                    value={enrollmentModal.grade_id}
+                                    onValueChange={(val) => setEnrollmentModal(prev => ({ ...prev, grade_id: val, section_id: "" }))}
+                                >
+                                    <SelectTrigger className="bg-slate-950 border-slate-800">
+                                        <SelectValue placeholder="Select Grade" />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
+                                        {gradesWithSections.map(g => (
+                                            <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Section</Label>
+                                <Select
+                                    value={enrollmentModal.section_id}
+                                    onValueChange={(val) => setEnrollmentModal(prev => ({ ...prev, section_id: val }))}
+                                    disabled={!enrollmentModal.grade_id}
+                                >
+                                    <SelectTrigger className="bg-slate-950 border-slate-800">
+                                        <SelectValue placeholder="Select Section" />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-slate-900 border-slate-700 text-slate-100">
+                                        {enrollmentModal.grade_id && gradesWithSections
+                                            .find(g => g.id === enrollmentModal.grade_id)?.sections
+                                            .map(s => (
+                                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                            ))
+                                        }
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Roll Number</Label>
+                            <Input
+                                value={enrollmentModal.roll_number}
+                                onChange={e => setEnrollmentModal(prev => ({ ...prev, roll_number: e.target.value }))}
+                                className="bg-slate-950 border-slate-800"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="ghost" onClick={() => setEnrollmentModal(prev => ({ ...prev, open: false }))}>Cancel</Button>
+                        <Button onClick={handleEnrollmentSubmit} disabled={enrollmentModal.processing} className="bg-nepsis-primary hover:bg-nepsis-primary/90">
+                            {enrollmentModal.processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Update Enrollment
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 

@@ -17,7 +17,10 @@ import {
   FileText,
   QrCode,
   ClipboardList,
-  Settings
+  Settings,
+  CheckCircle,
+  Calendar,
+  BookOpen
 } from 'lucide-react';
 import AIChatWidget from '../components/AIChatWidget';
 import SubscriptionBanner from '../components/SubscriptionBanner';
@@ -218,10 +221,12 @@ const DashboardLayout = () => {
                   )}
 
                   {/* Financial Setup (Old Fees Module) */}
-                  <NavLink to="/dashboard/fees" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
-                    <Settings size={20} />
-                    <span>Financial Setup</span>
-                  </NavLink>
+                  {['principal', 'super_admin', 'school_admin'].includes(user?.role) && (
+                    <NavLink to="/dashboard/fees" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                      <Settings size={20} />
+                      <span>Financial Setup</span>
+                    </NavLink>
+                  )}
                 </>
               )}
               {(['super_admin', 'board', 'school_admin'].includes(user?.role)) && (
@@ -241,6 +246,28 @@ const DashboardLayout = () => {
                   <ClipboardList size={20} />
                   <span>Grading</span>
                 </NavLink>
+              )}
+
+              {/* Attendance Management (Teacher) */}
+              {['teacher', 'principal', 'super_admin'].includes(user?.role) && (
+                <NavLink to="/dashboard/attendance/record" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                  <CheckCircle size={20} />
+                  <span>Record Attendance</span>
+                </NavLink>
+              )}
+
+              {/* Student Features */}
+              {user?.role === 'student' && (
+                <>
+                  <NavLink to="/dashboard/attendance" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                    <Calendar size={20} />
+                    <span>Attendance</span>
+                  </NavLink>
+                  <NavLink to="/dashboard/assessments" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                    <BookOpen size={20} />
+                    <span>Assessments</span>
+                  </NavLink>
+                </>
               )}
               {['super_admin', 'principal'].includes(user?.role) && (
                 <NavLink to="/dashboard/analytics/class" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
