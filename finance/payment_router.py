@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Header, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from typing import Dict, Any, Optional
+from sqlalchemy import select, func, or_
+from typing import Dict, Any, Optional, List
 import uuid
 import json
 import logging
@@ -21,6 +21,50 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+@router.get("/", response_model=List[finance_schemas.PaymentResponse])
+def list_payments(
+    student_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN))
+):
+    query = db.query(finance_models.Payment).filter(
+        finance_models.Payment.school_id == tenant.school_id
+    )
+
+    if student_id:
+        # Payments might link to invoice or fee or neither?
+        # Standard payment has invoice_id or student_invoice_id (preferred new way).
+        # We need to join with Invoice/StudentInvoice to filter by student.
+        # Or if Payment has student linkage directly? Current model doesn't seem to have direct student_id column on Payment, 
+        # it links via invoice_id (old) or student_invoice_id (new) or fee_id.
+        # This is complex to filter efficiently without joins.
+        # Let's try joining StudentInvoice
+        query = query.outerjoin(
+            finance_models.StudentInvoice, 
+            finance_models.Payment.student_invoice_id == finance_models.StudentInvoice.id
+        ).outerjoin(
+            finance_models.Fee,
+            finance_models.Payment.fee_id == finance_models.Fee.id
+        ).filter(
+            or_(
+                finance_models.StudentInvoice.student_id == student_id,
+                finance_models.Fee.student_id == student_id
+            )
+        )
+
+    if start_date:
+        query = query.filter(finance_models.Payment.created_at >= start_date)
+    if end_date:
+        query = query.filter(finance_models.Payment.created_at <= end_date)
+
+    payments = query.order_by(finance_models.Payment.created_at.desc()).offset(offset).limit(limit).all()
+    return payments
 
 @router.post("/invoices", response_model=finance_schemas.InvoiceResponse)
 def create_invoice(

@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, ForeignKey, Integer, Index, Boolean, Date
 from database import Base
 import uuid
 import enum
+from datetime import datetime, timezone
 
 def generate_uuid():
     return str(uuid.uuid4())
@@ -83,18 +84,141 @@ class PromotionRule(Base):
         Index("idx_promotion_rules_school_year", "school_id", "academic_year_id"),
     )
 
+
+# --- NEW PERIOD SCHEDULING MODELS ---
+
+class ScheduleTemplate(Base):
+    __tablename__ = "schedule_templates"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False) # e.g. "Regular 8 Periods", "Good Friday 4"
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    
+    # Structure remains flexible JSON but now part of a reusable template
+    # Format: [ { "label": "P1", "start": "09:00", "end": "09:45", "type": "CLASS" }, ... ]
+    structure = Column(JSON, nullable=False)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_schedule_templates_school", "school_id"),
+    )
+
+class ScheduleWeeklyRule(Base):
+    __tablename__ = "schedule_weekly_rules"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    
+    # One row per school (or per academic year if we want to version it, keeping it simple per school for now)
+    # Mapping: { "Sunday": template_id, "Monday": template_id, ... }
+    day_rules = Column(JSON, nullable=False) 
+    
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_schedule_weekly_rules_school", "school_id"),
+    )
+
+class ScheduleGradeMapping(Base):
+    __tablename__ = "schedule_grade_mappings"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
+    
+    # Strategy: "INHERIT" (use weekly rules) or "CUSTOM" (use specific template for regular days)
+    # If CUSTOM, which template is the "default" for this grade? 
+    # Or maybe it needs its own weekly map? 
+    # Plan said: "Default template dropdown" + "Inherit weekly pattern checkbox"
+    
+    inherit_weekly = Column(Boolean, default=True)
+    default_template_id = Column(String, ForeignKey("schedule_templates.id"), nullable=True) # Used if inherit_weekly is False (OR as base override)
+    
+    __table_args__ = (
+        Index("idx_schedule_grade_mappings_school_grade", "school_id", "grade_id"),
+        UniqueConstraint('school_id', 'grade_id', name='uq_schedule_grade_mapping')
+    )
+
+class ScheduleOverride(Base):
+    __tablename__ = "schedule_overrides"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    
+    name = Column(String, nullable=False) # "Exam Week"
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    
+    # Scope: specific grades or whole school?
+    # If null, applies to whole school
+    target_grade_ids = Column(JSON, nullable=True) # List of grade_ids ["g1", "g2"]
+    
+    # The Rule:
+    # { "days": ["Friday"], "template_id": "..." } -> On Fridays in this range, use this template
+    # OR simple mapping { "Monday": "tpl_id", ... } 
+    # Plan says: "Day-of-week selector", "Choose replacement template"
+    # We can store a rule object: { "affected_days": ["Friday"], "template_id": "xyz" }
+    rule_config = Column(JSON, nullable=False)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_schedule_overrides_dates", "school_id", "start_date", "end_date"),
+    )
+
+# Deprecated but kept for safe migration if needed
 class PeriodStructure(Base):
     __tablename__ = "period_structures"
     id = Column(String, primary_key=True, default=generate_uuid)
-    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=True) # Optional, can be global
-    
+    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=True) 
     structure = Column(JSON, nullable=False)
-    # { "periods_per_day": 8, "slots": [ { "start": "09:00", "end": "09:45", "type": "class" } ] }
-    
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
-
     __table_args__ = (
         Index("idx_period_structures_school", "school_id"),
+    )
+
+# --- NEW SECTION SUBJECT MAPPING MODELS ---
+
+class SectionSubjectTimetable(Base):
+    __tablename__ = "section_subject_timetables"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=False)
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=False)
+    
+    day_pattern_key = Column(String, nullable=False) # e.g. "REGULAR", "FRIDAY"
+    period_index = Column(Integer, nullable=False) # 1..N
+    
+    subject_id = Column(String, ForeignKey("subjects.id"), nullable=True) 
+    grade_subject_id = Column(String, ForeignKey("grade_subjects.id"), nullable=True) # New scoped link 
+    
+    created_by_user_id = Column(String, nullable=True)
+    updated_by_user_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        Index("idx_timetable_lookup", "school_id", "academic_year_id", "grade_id", "section_id"),
+        UniqueConstraint('school_id', 'academic_year_id', 'grade_id', 'section_id', 'day_pattern_key', 'period_index', name='uq_timetable_slot')
+    )
+
+class ClassTeacherAssignment(Base):
+    __tablename__ = "class_teacher_assignments"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=False)
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=False)
+    
+    teacher_user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    
+    source = Column(String, default="AUTO_FROM_P1") # AUTO_FROM_P1, MANUAL_OVERRIDE
+    derived_from_day_pattern_key = Column(String, nullable=True, default="REGULAR")
+    
+    created_by_user_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        Index("idx_class_teacher_lookup", "school_id", "academic_year_id", "grade_id", "section_id"),
+        UniqueConstraint('school_id', 'academic_year_id', 'grade_id', 'section_id', name='uq_class_teacher_assignment')
     )
 
 # --- Existing Models below (Updated where needed) ---
@@ -254,3 +378,65 @@ class StudentAssessmentScore(Base):
         Index("idx_student_assessment_scores_perf", "school_id", "assessment_id", "student_id"),
         UniqueConstraint('assessment_id', 'student_id', name='uq_assessment_student')
     )
+
+# --- NEW SUBJECT SCOPING & BOOK MODELS ---
+
+class GradeSubject(Base):
+    __tablename__ = "grade_subjects"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=False)
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
+    subject_id = Column(String, ForeignKey("subjects.id"), nullable=False)
+    
+    type = Column(String, default="CORE") # CORE, ELECTIVE, OPTIONAL
+    is_active = Column(Boolean, default=True)
+    
+    __table_args__ = (
+        Index("idx_grade_subjects_lookup", "school_id", "academic_year_id", "grade_id"),
+        UniqueConstraint('school_id', 'academic_year_id', 'grade_id', 'subject_id', name='uq_grade_subject_scoped')
+    )
+
+class GradeSubjectBookVersion(Base):
+    __tablename__ = "grade_subject_book_versions"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    grade_subject_id = Column(String, ForeignKey("grade_subjects.id"), nullable=False)
+    
+    title = Column(String, nullable=False)
+    publisher = Column(String, nullable=True)
+    edition = Column(String, nullable=True)
+    
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    is_active = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        Index("idx_book_versions_grade_subject", "school_id", "grade_subject_id"),
+    )
+
+class TeachingAssignment(Base):
+    __tablename__ = "teaching_assignments"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=False)
+    
+    teacher_user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=True)
+    
+    grade_subject_id = Column(String, ForeignKey("grade_subjects.id"), nullable=True) # Preferred
+    # Note: grade_subject_id implies grade and academic_year, but we store explicit for queries
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        Index("idx_teaching_assignments_teacher", "school_id", "academic_year_id", "teacher_user_id"),
+        UniqueConstraint('school_id', 'academic_year_id', 'teacher_user_id', 'grade_id', 'section_id', 'grade_subject_id', name='uq_teaching_assignment_complex')
+    )
+
+class BaseModel(Base):
+    __abstract__ = True
+

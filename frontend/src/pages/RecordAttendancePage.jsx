@@ -10,6 +10,7 @@ import { Loader2, Save, CheckCircle, AlertCircle, Calendar as CalendarIcon, User
 
 const RecordAttendancePage = () => {
     const [contexts, setContexts] = useState([]);
+    const [selectedGrade, setSelectedGrade] = useState("");
     const [selectedSection, setSelectedSection] = useState("");
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [students, setStudents] = useState([]);
@@ -129,15 +130,29 @@ const RecordAttendancePage = () => {
                         />
                     </div>
 
-                    <div className="space-y-1 w-full md:w-64">
-                        <label className="text-sm font-medium text-gray-700">Class Section</label>
-                        <Select onValueChange={setSelectedSection} value={selectedSection}>
+                    <div className="space-y-1 w-full md:w-48">
+                        <label className="text-sm font-medium text-gray-700">Grade</label>
+                        <Select onValueChange={(val) => { setSelectedGrade(val); setSelectedSection(""); }} value={selectedGrade}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select Class" />
+                                <SelectValue placeholder="Select Grade" />
                             </SelectTrigger>
                             <SelectContent>
-                                {contexts.map(c => (
-                                    <SelectItem key={c.id} value={c.id}>{c.grade_name} - {c.name}</SelectItem>
+                                {[...new Set(contexts.map(c => c.grade_name))].sort().map(g => (
+                                    <SelectItem key={g} value={g}>{g}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1 w-full md:w-48">
+                        <label className="text-sm font-medium text-gray-700">Section</label>
+                        <Select onValueChange={setSelectedSection} value={selectedSection} disabled={!selectedGrade}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select Section" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {contexts.filter(c => c.grade_name === selectedGrade).map(c => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>

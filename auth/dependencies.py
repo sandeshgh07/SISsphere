@@ -26,6 +26,7 @@ class Roles:
     STUDENT = "student"
     BOARD = "board"
     SECURITY_GUARD = "security_guard"
+    ACADEMIC_ADMIN = "academic_admin"
 
 def get_db():
     db = SessionLocal()

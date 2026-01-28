@@ -18,13 +18,17 @@ from students.router import router as students_router
 from finance.router import router as finance_router
 from finance.payment_router import router as payment_router
 from finance.fee_templates_router import router as fee_templates_router
+from finance.discount_rules_router import router as discount_rules_router
+from finance.invoices_router import router as invoices_router
+from finance.analytics_router import router as analytics_router
+from finance.legacy_router import router as legacy_router
 from admin.router import router as admin_router
 from admin.bulk_router import router as bulk_admin_router
 from attendance.router import router as attendance_router
 from ai.router import router as ai_router
 from reports.router import router as reports_router
 from communication.router import router as communication_router
-from analytics.router import router as analytics_router
+from analytics.router import router as academic_analytics_router
 from analytics.parent_router import router as parent_analytics_router
 from analytics.board_router import router as board_router
 from analytics.principal_router import router as principal_router
@@ -34,6 +38,9 @@ from schools.governance_router import router as governance_router
 from schools.governance_router import router as governance_router
 from schools.handover_router import router as handover_router
 from dashboard.router import router as dashboard_router
+from dashboard.teacher_router import router as teacher_dashboard_router
+from dashboard.users_router import router as users_profile_router
+from audit.router import router as audit_router
 
 from database import engine, Base, register_listeners, SessionLocal
 import os
@@ -129,6 +136,10 @@ app.include_router(students_router, prefix="/api")
 app.include_router(finance_router, prefix="/api")
 app.include_router(payment_router, prefix="/api")
 app.include_router(fee_templates_router, prefix="/api")
+app.include_router(discount_rules_router, prefix="/api")
+app.include_router(invoices_router) # Prefixed in router
+app.include_router(analytics_router)
+app.include_router(legacy_router)
 app.include_router(admin_router, prefix="/api")
 app.include_router(bulk_admin_router, prefix="/api")
 app.include_router(attendance_router, prefix="/api")
@@ -139,7 +150,7 @@ app.include_router(communication_router, prefix="/api")
 # I should just check if the router itself had a prefix.
 # The previous line: prefix="/api/analytics" suggests the router didn't have /api/analytics built in?
 # Or maybe it did? Let's assume standard behavior is to rely on include_router prefix for the "global" part.
-app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(academic_analytics_router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(parent_analytics_router)
 app.include_router(board_router)
 app.include_router(principal_router)
@@ -148,6 +159,9 @@ app.include_router(gate_router)
 app.include_router(governance_router)
 app.include_router(handover_router)
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(teacher_dashboard_router, prefix="/api/dashboard")
+app.include_router(users_profile_router, prefix="/api")
+app.include_router(audit_router, prefix="/api/audit", tags=["audit"])
 
 @app.get("/health")
 async def health_check():

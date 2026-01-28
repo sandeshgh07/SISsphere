@@ -117,6 +117,7 @@ class UserOut(BaseModel):
     phone: str | None = None
     created_at: datetime
     roles: list[str] = []
+    related_student_id: UUID | None = None
 
     class Config:
         from_attributes = True

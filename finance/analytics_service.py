@@ -208,3 +208,219 @@ class FinanceAnalyticsService:
                 data["REMOTE"] += (r.total or 0.0)
 
         return data
+
+    def get_finance_summary(self, start_date: datetime, end_date: datetime):
+        """
+        Returns high-level finance KPIs for the dashboard.
+        """
+        # Billed Total (Invoices issued in range)
+        billed_query = self.db.query(func.sum(finance_models.StudentInvoice.total_due)).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL,
+                finance_models.StudentInvoiceStatus.PAID
+            ]),
+            finance_models.StudentInvoice.issued_at >= start_date,
+            finance_models.StudentInvoice.issued_at <= end_date
+        )
+        billed_total = billed_query.scalar() or 0.0
+
+        # Collected Total (Payments in range)
+        collected_query = self.db.query(func.sum(finance_models.Payment.amount)).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED,
+            finance_models.Payment.paid_at >= start_date,
+            finance_models.Payment.paid_at <= end_date
+        )
+        collected_total = collected_query.scalar() or 0.0
+
+        # Outstanding Total (All time? Or just relevant to period?)
+        # Dashboard usually shows CURRENT outstanding (all time active debt)
+        outstanding_query = self.db.query(func.sum(finance_models.StudentInvoice.balance)).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL
+            ])
+        )
+        outstanding_total = outstanding_query.scalar() or 0.0
+
+        # Overdue Count
+        overdue_query = self.db.query(func.count(finance_models.StudentInvoice.id)).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL
+            ]),
+            finance_models.StudentInvoice.due_date < self.today
+        )
+        overdue_count = overdue_query.scalar() or 0
+
+        # Students with Dues
+        students_with_dues_query = self.db.query(func.count(func.distinct(finance_models.StudentInvoice.student_id))).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.balance > 0,
+             finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL
+            ])
+        )
+        students_with_dues_count = students_with_dues_query.scalar() or 0
+
+        # Convert to float for calculation and response
+        billed_f = float(billed_total)
+        collected_f = float(collected_total)
+        
+        # Collection Rate (Collected / Billed) * 100
+        collection_rate = 0.0
+        if billed_f > 0:
+            collection_rate = (collected_f / billed_f) * 100.0
+        elif collected_f > 0:
+            collection_rate = 100.0
+
+        return {
+            "billed_total": billed_f,
+            "collected_total": collected_f,
+            "outstanding_total": float(outstanding_total),
+            "overdue_count": overdue_count,
+            "students_with_dues_count": students_with_dues_count,
+            "collection_rate": round(collection_rate, 1)
+        }
+
+    def get_revenue_trend_monthly(self, months: int = 12):
+        """
+        Returns monthly collected totals for the last N months.
+        """
+        start_date = self.today - timedelta(days=months * 30) # Approx
+        
+        results = self.db.query(
+            func.strftime('%Y-%m', finance_models.Payment.paid_at).label("period"),
+            func.sum(finance_models.Payment.amount).label("amount")
+        ).filter(
+            finance_models.Payment.school_id == self.school_id,
+            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED,
+            finance_models.Payment.paid_at >= start_date
+        ).group_by(
+            func.strftime('%Y-%m', finance_models.Payment.paid_at)
+        ).order_by(
+            func.strftime('%Y-%m', finance_models.Payment.paid_at)
+        ).all()
+
+        return [{"period": r.period, "amount": float(r.amount)} for r in results]
+
+    def get_outstanding_by_grade(self):
+        """
+        Returns total outstanding balance grouped by Grade.
+        """
+        from students import models as student_models
+        from academics import models as academic_models
+
+        # Join Invoice -> Student -> Grade
+        results = self.db.query(
+            academic_models.Grade.name.label("grade_name"),
+            func.sum(finance_models.StudentInvoice.balance).label("total_outstanding")
+        ).join(
+            student_models.Student, finance_models.StudentInvoice.student_id == student_models.Student.id
+        ).join(
+            academic_models.Grade, student_models.Student.grade_id == academic_models.Grade.id
+        ).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.balance > 0,
+            finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL
+            ])
+        ).group_by(
+            academic_models.Grade.name
+        ).order_by(
+            academic_models.Grade.name # Or order by amount descending?
+        ).all()
+
+        return [{"grade": r.grade_name, "amount": float(r.total_outstanding)} for r in results]
+
+    def get_aging_report(self):
+        """
+        Returns outstanding balances bucketed by age (days since due date).
+        Buckets: 0-30, 31-60, 61-90, 90+
+        """
+        # We can do this in Python or SQL. SQL with CASE is better but more verbose.
+        # Let's fetch all unpaid invoices with due dates and bucket in Python for simplicity/readability
+        # unless volume is huge. Assuming volume is manageable per school.
+        
+        invoices = self.db.query(finance_models.StudentInvoice).filter(
+             finance_models.StudentInvoice.school_id == self.school_id,
+             finance_models.StudentInvoice.balance > 0,
+             finance_models.StudentInvoice.status.in_([
+                finance_models.StudentInvoiceStatus.ISSUED,
+                finance_models.StudentInvoiceStatus.PARTIAL
+             ])
+        ).all()
+
+        buckets = {
+            "0-30": 0.0,
+            "31-60": 0.0,
+            "61-90": 0.0,
+            "90+": 0.0
+        }
+
+        today = datetime.now(timezone.utc)
+
+        for inv in invoices:
+            balance = float(inv.balance)
+            if not inv.due_date:
+                # If no due date, treat as current? Or 0-30?
+                buckets["0-30"] += balance
+                continue
+            
+            # Ensure timezone awareness match
+            due_at = inv.due_date
+            if due_at.tzinfo is None:
+                due_at = due_at.replace(tzinfo=timezone.utc)
+            
+            delta = (today - due_at).days
+            
+            if delta <= 30:
+                buckets["0-30"] += balance
+            elif delta <= 60:
+                buckets["31-60"] += balance
+            elif delta <= 90:
+                buckets["61-90"] += balance
+            else:
+                buckets["90+"] += balance
+
+        return [{"bucket": k, "amount": v} for k, v in buckets.items()]
+
+    def get_top_unpaid_students(self, limit: int = 10):
+        """
+        Returns top students with highest total outstanding balance.
+        """
+        from students import models as student_models
+        
+        # Aggregate by student
+        results = self.db.query(
+            finance_models.StudentInvoice.student_id,
+            func.sum(finance_models.StudentInvoice.balance).label("total_debt")
+        ).filter(
+            finance_models.StudentInvoice.school_id == self.school_id,
+            finance_models.StudentInvoice.balance > 0
+        ).group_by(
+            finance_models.StudentInvoice.student_id
+        ).order_by(
+            func.sum(finance_models.StudentInvoice.balance).desc()
+        ).limit(limit).all()
+
+        # Fetch student details
+        data = []
+        for r in results:
+            student = self.db.query(student_models.Student).filter(student_models.Student.id == r.student_id).first()
+            if student:
+                data.append({
+                    "student_id": student.id,
+                    "student_name": f"{student.first_name} {student.last_name}",
+                    "grade": student.grade.name if student.grade else "N/A",
+                    "amount": float(r.total_debt),
+                    "identifier": student.student_id or student.email # Useful for display
+                })
+        
+        return data

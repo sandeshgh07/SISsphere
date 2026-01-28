@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -8,6 +9,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { toast } from 'sonner';
 
 const ClassAnalytics = () => {
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
 
@@ -253,7 +255,14 @@ const ClassAnalytics = () => {
                                             <p className="text-xs text-red-600">{student.reason}</p>
                                         </div>
                                     </div>
-                                    <Button size="sm" variant="outline" className="text-xs border-red-200 text-red-700 hover:bg-red-100">Contact</Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-xs border-red-200 text-red-700 hover:bg-red-100"
+                                        onClick={() => navigate(`/dashboard/students/${student.id}`)}
+                                    >
+                                        Contact
+                                    </Button>
                                 </div>
                             ))}
                             {(!data?.at_risk_students || data.at_risk_students.length === 0) && (

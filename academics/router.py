@@ -287,37 +287,368 @@ def execute_promotion(
     return {"message": "Promotion execution started (Logic pending implementation)"}
 
 # Period Structures
-@router.post("/period-structures", response_model=academic_schemas.PeriodStructureResponse)
-def create_period_structure(
-    structure: academic_schemas.PeriodStructureCreate,
+# --- FLEXIBLE PERIOD STRUCTURE ENDPOINTS ---
+
+# 1. Schedule Templates
+@router.post("/schedule-templates", response_model=academic_schemas.ScheduleTemplateResponse)
+def create_schedule_template(
+    template: academic_schemas.ScheduleTemplateCreate,
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
     user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    # Logic to handle defaults vs specific year
-    new_struct = academic_models.PeriodStructure(
-        academic_year_id=structure.academic_year_id,
-        structure=structure.structure,
+    # Validate structure
+    for slot in template.structure:
+        if "label" not in slot or "start" not in slot or "end" not in slot or "type" not in slot:
+             raise HTTPException(status_code=400, detail="Invalid structure. Slots must have label, start, end, type.")
+
+    new_tpl = academic_models.ScheduleTemplate(
+        name=template.name,
+        structure=template.structure,
         school_id=str(tenant.school_id)
     )
-    db.add(new_struct)
+    
+    # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="CREATE_TEMPLATE",
+        table_name="schedule_templates",
+        school_id=str(tenant.school_id),
+        metadata=json.dumps({"name": template.name}),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.add(new_tpl)
     db.commit()
-    db.refresh(new_struct)
-    return new_struct
+    db.refresh(new_tpl)
+    return new_tpl
 
-@router.get("/period-structures", response_model=List[academic_schemas.PeriodStructureResponse])
-def list_period_structures(
-    academic_year_id: Optional[str] = None,
+@router.put("/schedule-templates/{template_id}", response_model=academic_schemas.ScheduleTemplateResponse)
+def update_schedule_template(
+    template_id: str,
+    update: academic_schemas.ScheduleTemplateUpdate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    tpl = db.query(academic_models.ScheduleTemplate).filter(
+        academic_models.ScheduleTemplate.id == template_id,
+        academic_models.ScheduleTemplate.school_id == str(tenant.school_id)
+    ).first()
+    
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    if update.name is not None:
+        tpl.name = update.name
+    if update.structure is not None:
+         # Validate structure
+        for slot in update.structure:
+            if "label" not in slot or "start" not in slot or "end" not in slot or "type" not in slot:
+                 raise HTTPException(status_code=400, detail="Invalid structure. Slots must have label, start, end, type.")
+        tpl.structure = update.structure
+
+    # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="UPDATE_TEMPLATE",
+        table_name="schedule_templates",
+        record_id=template_id,
+        school_id=str(tenant.school_id),
+        metadata=json.dumps(update.dict(exclude_unset=True)),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.commit()
+    db.refresh(tpl)
+    return tpl
+
+@router.get("/schedule-templates", response_model=List[academic_schemas.ScheduleTemplateResponse])
+def list_schedule_templates(
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
     user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
 ):
-    query = db.query(academic_models.PeriodStructure).filter(
-        academic_models.PeriodStructure.school_id == str(tenant.school_id)
+    return db.query(academic_models.ScheduleTemplate).filter(
+        academic_models.ScheduleTemplate.school_id == str(tenant.school_id)
+    ).all()
+
+@router.delete("/schedule-templates/{template_id}")
+def delete_schedule_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    tpl = db.query(academic_models.ScheduleTemplate).filter(
+        academic_models.ScheduleTemplate.id == template_id,
+        academic_models.ScheduleTemplate.school_id == str(tenant.school_id)
+    ).first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    db.delete(tpl)
+    db.commit()
+    return {"message": "Template deleted"}
+
+
+# 2. Weekly Rules
+@router.post("/schedule-weekly-rules", response_model=academic_schemas.ScheduleWeeklyRuleResponse)
+def update_weekly_rules(
+    rules: academic_schemas.ScheduleWeeklyRuleCreate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    # Check if exists (singleton per school for now)
+    existing = db.query(academic_models.ScheduleWeeklyRule).filter(
+        academic_models.ScheduleWeeklyRule.school_id == str(tenant.school_id)
+    ).first()
+    
+    if existing:
+        existing.day_rules = rules.day_rules
+        db.add(existing) # Mark modified
+    else:
+        existing = academic_models.ScheduleWeeklyRule(
+            day_rules=rules.day_rules,
+            school_id=str(tenant.school_id)
+        )
+        db.add(existing)
+
+    # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="UPDATE_WEEKLY_RULES",
+        table_name="schedule_weekly_rules",
+        school_id=str(tenant.school_id),
+        metadata=json.dumps({"rules": rules.day_rules}),
+        timestamp=datetime.now(timezone.utc)
     )
-    if academic_year_id:
-        query = query.filter(academic_models.PeriodStructure.academic_year_id == academic_year_id)
-    return query.all()
+    db.add(audit)
+
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+@router.get("/schedule-weekly-rules", response_model=Optional[academic_schemas.ScheduleWeeklyRuleResponse])
+def get_weekly_rules(
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    return db.query(academic_models.ScheduleWeeklyRule).filter(
+        academic_models.ScheduleWeeklyRule.school_id == str(tenant.school_id)
+    ).first()
+
+
+# 3. Grade Mappings
+@router.post("/schedule-grade-mappings", response_model=academic_schemas.ScheduleGradeMappingResponse)
+def update_grade_mapping(
+    mapping: academic_schemas.ScheduleGradeMappingCreate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    existing = db.query(academic_models.ScheduleGradeMapping).filter(
+        academic_models.ScheduleGradeMapping.grade_id == mapping.grade_id,
+        academic_models.ScheduleGradeMapping.school_id == str(tenant.school_id)
+    ).first()
+    
+    if existing:
+        existing.inherit_weekly = mapping.inherit_weekly
+        existing.default_template_id = mapping.default_template_id
+        db.add(existing)
+    else:
+        existing = academic_models.ScheduleGradeMapping(
+            grade_id=mapping.grade_id,
+            inherit_weekly=mapping.inherit_weekly,
+            default_template_id=mapping.default_template_id,
+            school_id=str(tenant.school_id)
+        )
+        db.add(existing)
+        
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+@router.get("/schedule-grade-mappings", response_model=List[academic_schemas.ScheduleGradeMappingResponse])
+def list_grade_mappings(
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    return db.query(academic_models.ScheduleGradeMapping).filter(
+        academic_models.ScheduleGradeMapping.school_id == str(tenant.school_id)
+    ).all()
+
+
+# 4. Overrides
+@router.post("/schedule-overrides", response_model=academic_schemas.ScheduleOverrideResponse)
+def create_override(
+    override: academic_schemas.ScheduleOverrideCreate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    # Check overlaps logic? Maybe warn but allow for now as requested "newest wins"
+    
+    new_override = academic_models.ScheduleOverride(
+        name=override.name,
+        start_date=override.start_date,
+        end_date=override.end_date,
+        target_grade_ids=override.target_grade_ids,
+        rule_config=override.rule_config,
+        school_id=str(tenant.school_id)
+    )
+    
+     # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="CREATE_OVERRIDE",
+        table_name="schedule_overrides",
+        school_id=str(tenant.school_id),
+        metadata=json.dumps({"name": override.name, "range": f"{override.start_date} to {override.end_date}"}),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.add(new_override)
+    db.commit()
+    db.refresh(new_override)
+    return new_override
+
+@router.get("/schedule-overrides", response_model=List[academic_schemas.ScheduleOverrideResponse])
+def list_overrides(
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    # Sort by created_at desc for priority
+    return db.query(academic_models.ScheduleOverride).filter(
+        academic_models.ScheduleOverride.school_id == str(tenant.school_id)
+    ).order_by(academic_models.ScheduleOverride.created_at.desc()).all()
+    
+@router.delete("/schedule-overrides/{override_id}")
+def delete_override(
+    override_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    ov = db.query(academic_models.ScheduleOverride).filter(
+        academic_models.ScheduleOverride.id == override_id,
+        academic_models.ScheduleOverride.school_id == str(tenant.school_id)
+    ).first()
+    if not ov:
+         raise HTTPException(status_code=404, detail="Override not found")
+         
+    db.delete(ov)
+    db.commit()
+    return {"message": "Override deleted"}
+
+
+# 5. Preview Logic
+@router.post("/schedule/preview", response_model=academic_schemas.SchedulePreviewResponse)
+def preview_schedule(
+    req: academic_schemas.SchedulePreviewRequest,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    school_id = str(tenant.school_id)
+    target_date = req.date
+    weekday_name = target_date.strftime("%A") # "Sunday", "Monday"...
+    
+    # 1. Fetch all relevant data (Optimized fetch strategies could be used, but keeping simple)
+    
+    # Fetch Overrides intersecting date
+    overrides = db.query(academic_models.ScheduleOverride).filter(
+        academic_models.ScheduleOverride.school_id == school_id,
+        academic_models.ScheduleOverride.start_date <= target_date,
+        academic_models.ScheduleOverride.end_date >= target_date
+    ).order_by(academic_models.ScheduleOverride.created_at.desc()).all()
+    
+    # Fetch Grade Mapping if grade specified
+    grade_mapping = None
+    if req.grade_id:
+        grade_mapping = db.query(academic_models.ScheduleGradeMapping).filter(
+            academic_models.ScheduleGradeMapping.school_id == school_id,
+            academic_models.ScheduleGradeMapping.grade_id == req.grade_id
+        ).first()
+        
+    # Fetch Weekly Rules
+    weekly_rules = db.query(academic_models.ScheduleWeeklyRule).filter(
+        academic_models.ScheduleWeeklyRule.school_id == school_id
+    ).first()
+    
+    # RESOLUTION LOGIC
+    
+    # A. Check Overrides (Newest first)
+    resolved_template_id = None
+    source = "Default"
+    
+    for ov in overrides:
+        # Check scope
+        if ov.target_grade_ids:
+            # If specific grades are targeted
+            if not req.grade_id: continue # Can't apply grade-specific override to generic preview
+            if req.grade_id not in ov.target_grade_ids: continue
+        
+        # Check logic: days match?
+        rule_config = ov.rule_config or {}
+        # Example config: { "days": ["Friday", "Sunday"], "template_id": "xyz" } 
+        # OR simple map: { "Monday": "xyz" } -> "Monday" in rule_config
+        
+        # Let's support the detailed config: { "days": [...], "template_id": "..." }
+        if "days" in rule_config and "template_id" in rule_config:
+            if weekday_name in rule_config["days"]:
+                resolved_template_id = rule_config["template_id"]
+                source = f"Override: {ov.name}"
+                break
+        
+        # Support simple day map
+        elif weekday_name in rule_config:
+             resolved_template_id = rule_config[weekday_name]
+             source = f"Override: {ov.name}"
+             break
+             
+    # B. If no override, Check Grade Mapping
+    if not resolved_template_id and grade_mapping:
+        if not grade_mapping.inherit_weekly:
+             # Use custom template
+             if grade_mapping.default_template_id:
+                 resolved_template_id = grade_mapping.default_template_id
+                 source = "Grade Mapping (Custom)"
+        # If inherit_weekly is True, we proceed to check weekly rules below
+        
+    # C. Check Weekly Rules
+    if not resolved_template_id and weekly_rules:
+        if weekly_rules.day_rules and weekday_name in weekly_rules.day_rules:
+            resolved_template_id = weekly_rules.day_rules[weekday_name]
+            source = "Weekly Pattern"
+            
+    # D. Fetch Template Content
+    template_name = "None"
+    periods = []
+    
+    if resolved_template_id:
+        tpl = db.query(academic_models.ScheduleTemplate).filter(
+            academic_models.ScheduleTemplate.id == resolved_template_id
+        ).first()
+        if tpl:
+            template_name = tpl.name
+            periods = tpl.structure
+        else:
+            source = f"{source} (Template {resolved_template_id} Not Found)"
+            
+    return {
+        "date": target_date,
+        "template_name": template_name,
+        "periods": periods,
+        "source": source
+    }
 
 
 # Update Subjects create/list to use new Schema
@@ -354,7 +685,645 @@ def list_subjects(
     return query.all()
 
 
-# --- EXISTING ENDPOINTS (UPDATED IMPORTS) ---
+
+# 6. Section & Subject Timetable Mapping
+@router.get("/timetable/section-subject", response_model=List[academic_schemas.SectionSubjectTimetableResponse])
+def get_section_subject_timetable(
+    academic_year_id: str,
+    grade_id: str,
+    section_id: str,
+    day_pattern_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    query = db.query(academic_models.SectionSubjectTimetable).filter(
+        academic_models.SectionSubjectTimetable.school_id == str(tenant.school_id),
+        academic_models.SectionSubjectTimetable.academic_year_id == academic_year_id,
+        academic_models.SectionSubjectTimetable.grade_id == grade_id,
+        academic_models.SectionSubjectTimetable.section_id == section_id
+    )
+    if day_pattern_key:
+        query = query.filter(academic_models.SectionSubjectTimetable.day_pattern_key == day_pattern_key)
+        
+    results = query.all()
+    
+    # Enrichment
+    # Collect IDs
+    subject_ids = set()
+    grade_subject_ids = set()
+    for r in results:
+        if r.subject_id: subject_ids.add(r.subject_id)
+        if r.grade_subject_id: grade_subject_ids.add(r.grade_subject_id)
+        
+    # Maps
+    subject_map = {}
+    if subject_ids:
+        subjects = db.query(academic_models.Subject).filter(academic_models.Subject.id.in_(list(subject_ids))).all()
+        subject_map = {s.id: s.name for s in subjects}
+        
+    grade_subject_map = {}
+    book_map = {}
+    if grade_subject_ids:
+        gss = db.query(academic_models.GradeSubject).filter(academic_models.GradeSubject.id.in_(list(grade_subject_ids))).all()
+        # Create map of GS ID -> Subject ID -> Name? Or just GS ID -> Name directly if GS implies subject
+        # GS links to Subject, so we need Subject name from GS.subject_id
+        # We can optimize this but let's just fetch subjects of these GSs if not already in subject_ids
+        extra_subj_ids = [gs.subject_id for gs in gss if gs.subject_id not in subject_ids]
+        if extra_subj_ids:
+            extra_subjs = db.query(academic_models.Subject).filter(academic_models.Subject.id.in_(extra_subj_ids)).all()
+            subject_map.update({s.id: s.name for s in extra_subjs})
+            
+        grade_subject_map = {gs.id: {'subject_id': gs.subject_id} for gs in gss}
+        
+        # Books
+        books = db.query(academic_models.GradeSubjectBookVersion).filter(
+            academic_models.GradeSubjectBookVersion.grade_subject_id.in_(list(grade_subject_ids)),
+            academic_models.GradeSubjectBookVersion.is_active == True
+        ).all()
+        book_map = {b.grade_subject_id: b.title for b in books}
+    
+    response = []
+    for r in results:
+        resp = academic_schemas.SectionSubjectTimetableResponse.from_orm(r)
+        
+        # Determine Name
+        if r.grade_subject_id and r.grade_subject_id in grade_subject_map:
+            s_id = grade_subject_map[r.grade_subject_id]['subject_id']
+            resp.subject_name = subject_map.get(s_id)
+            resp.book_title = book_map.get(r.grade_subject_id)
+        elif r.subject_id:
+            resp.subject_name = subject_map.get(r.subject_id)
+            
+        response.append(resp)
+        
+    return response
+
+@router.put("/timetable/section-subject")
+def update_section_subject_timetable(
+    mappings: List[academic_schemas.SectionSubjectTimetableBase],
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER))
+):
+    if not mappings:
+        return {"message": "No mappings provided"}
+        
+    # Validation: Ensure all same school/grade/section/year request generally? 
+    # Or allow mixed. Allowing mixed but must enforce school_id of tenant
+    
+    school_id = str(tenant.school_id)
+    count = 0
+    
+    # Simple Bulk Upsert approach: Iterate and upsert
+    # For efficiency in huge datasets we'd use bulk_save_objects with checking, but limited scope here
+    
+    # Pre-fetch grade_subjects to resolve subject_id
+    gs_ids = [m.grade_subject_id for m in mappings if m.grade_subject_id]
+    gs_map = {}
+    if gs_ids:
+        gss = db.query(academic_models.GradeSubject).filter(academic_models.GradeSubject.id.in_(gs_ids)).all()
+        gs_map = {gs.id: gs.subject_id for gs in gss}
+
+    for m in mappings:
+        # Resolve subject_id
+        resolved_subject_id = m.subject_id
+        if m.grade_subject_id and m.grade_subject_id in gs_map:
+            resolved_subject_id = gs_map[m.grade_subject_id]
+            
+        # Check uniqueness constraint fields
+        existing = db.query(academic_models.SectionSubjectTimetable).filter(
+            academic_models.SectionSubjectTimetable.school_id == school_id,
+            academic_models.SectionSubjectTimetable.academic_year_id == m.academic_year_id,
+            academic_models.SectionSubjectTimetable.grade_id == m.grade_id,
+            academic_models.SectionSubjectTimetable.section_id == m.section_id,
+            academic_models.SectionSubjectTimetable.day_pattern_key == m.day_pattern_key,
+            academic_models.SectionSubjectTimetable.period_index == m.period_index
+        ).first()
+        
+        if existing:
+            existing.subject_id = resolved_subject_id
+            existing.grade_subject_id = m.grade_subject_id
+            existing.updated_by_user_id = str(user.id)
+            db.add(existing)
+        else:
+            new_entry = academic_models.SectionSubjectTimetable(
+                school_id=school_id,
+                academic_year_id=m.academic_year_id,
+                grade_id=m.grade_id,
+                section_id=m.section_id,
+                day_pattern_key=m.day_pattern_key,
+                period_index=m.period_index,
+                subject_id=resolved_subject_id,
+                grade_subject_id=m.grade_subject_id,
+                created_by_user_id=str(user.id),
+                updated_by_user_id=str(user.id)
+            )
+            db.add(new_entry)
+        count += 1
+            
+    # Audit (Summary)
+    # We log a summary event
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="UPDATE_TIMETABLE_MAPPING",
+        table_name="section_subject_timetables",
+        school_id=school_id,
+        metadata=json.dumps({"count": count, "grade_id": mappings[0].grade_id if count > 0 else "unknown"}),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.commit()
+    return {"message": f"Updated {count} mappings"}
+
+# 7. Class Teacher Assignment logic
+@router.post("/timetable/compute-class-teachers")
+def compute_class_teachers(
+    academic_year_id: str,
+    grade_id: str,
+    section_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER))
+):
+    school_id = str(tenant.school_id)
+    
+    # 1. Look up P1 subject for "REGULAR" day pattern
+    p1_mapping = db.query(academic_models.SectionSubjectTimetable).filter(
+        academic_models.SectionSubjectTimetable.school_id == school_id,
+        academic_models.SectionSubjectTimetable.academic_year_id == academic_year_id,
+        academic_models.SectionSubjectTimetable.grade_id == grade_id,
+        academic_models.SectionSubjectTimetable.section_id == section_id,
+        academic_models.SectionSubjectTimetable.day_pattern_key == "REGULAR", # Default convention
+        academic_models.SectionSubjectTimetable.period_index == 1
+    ).first()
+    
+    if not p1_mapping or not p1_mapping.subject_id:
+        return {"message": "No subject found in Regular Day Period 1. Cannot auto-assign."}
+        
+    # 2. Find teacher assigned to that subject
+    # Note: Subject model has assigned_teacher_id. 
+    # If the system evolves to "SubjectTeacherAssignment" separate table, this needs update. 
+    # Current Assumption: Subject.assigned_teacher_id holds the teacher.
+    # WAIT: Existing Subject model has `assigned_teacher_id`. But is that per section? 
+    # Previously `Subject` was per grade. If `Subject` is shared across sections, then `assigned_teacher_id` implies one teacher per grade. 
+    # If we need different teachers per section, we need `TeacherAssignment` table (which exists).
+    
+    # Let's check TeacherAssignment table first for (grade, section, subject)
+    teacher_assignment = db.query(academic_models.TeacherAssignment).filter(
+        academic_models.TeacherAssignment.school_id == school_id,
+        academic_models.TeacherAssignment.grade_id == grade_id,
+        academic_models.TeacherAssignment.section_id == section_id,
+        academic_models.TeacherAssignment.subject_id == p1_mapping.subject_id
+    ).first()
+    
+    candidate_teacher_id = None
+    if teacher_assignment:
+        candidate_teacher_id = teacher_assignment.teacher_id
+    else:
+        # Fallback to Subject default
+        subj = db.query(academic_models.Subject).filter(
+            academic_models.Subject.id == p1_mapping.subject_id
+        ).first()
+        if subj and subj.assigned_teacher_id:
+            candidate_teacher_id = subj.assigned_teacher_id
+            
+    if not candidate_teacher_id:
+        return {"message": "Subject found but no teacher assigned to it. Cannot auto-assign."}
+        
+    # 3. Upsert ClassTeacherAssignment
+    assignment = db.query(academic_models.ClassTeacherAssignment).filter(
+        academic_models.ClassTeacherAssignment.school_id == school_id,
+        academic_models.ClassTeacherAssignment.academic_year_id == academic_year_id,
+        academic_models.ClassTeacherAssignment.grade_id == grade_id,
+        academic_models.ClassTeacherAssignment.section_id == section_id
+    ).first()
+    
+    if assignment:
+        # If MANUAL_OVERRIDE, do not overwrite
+        if assignment.source == "MANUAL_OVERRIDE":
+            return {"message": "Class teacher is manually overridden. Skipping auto-assign.", "current_teacher_id": assignment.teacher_user_id}
+        
+        assignment.teacher_user_id = candidate_teacher_id
+        assignment.source = "AUTO_FROM_P1" # Confirm source
+        db.add(assignment)
+    else:
+        assignment = academic_models.ClassTeacherAssignment(
+            school_id=school_id,
+            academic_year_id=academic_year_id,
+            grade_id=grade_id,
+            section_id=section_id,
+            teacher_user_id=candidate_teacher_id,
+            source="AUTO_FROM_P1",
+            derived_from_day_pattern_key="REGULAR"
+        )
+        db.add(assignment)
+        
+    # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="AUTO_ASSIGN_CLASS_TEACHER",
+        table_name="class_teacher_assignments",
+        school_id=school_id,
+        metadata=json.dumps({"grade_id": grade_id, "section_id": section_id, "teacher_id": candidate_teacher_id}),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.commit()
+    return {"message": "Class teacher auto-assigned", "teacher_id": candidate_teacher_id}
+
+@router.put("/class-teachers/override")
+def override_class_teacher(
+    req: academic_schemas.ClassTeacherOverrideRequest,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER))
+):
+    school_id = str(tenant.school_id)
+    
+    assignment = db.query(academic_models.ClassTeacherAssignment).filter(
+        academic_models.ClassTeacherAssignment.school_id == school_id,
+        academic_models.ClassTeacherAssignment.academic_year_id == req.academic_year_id,
+        academic_models.ClassTeacherAssignment.grade_id == req.grade_id,
+        academic_models.ClassTeacherAssignment.section_id == req.section_id
+    ).first()
+    
+    if assignment:
+        assignment.teacher_user_id = req.teacher_user_id
+        assignment.source = "MANUAL_OVERRIDE"
+        db.add(assignment)
+    else:
+        assignment = academic_models.ClassTeacherAssignment(
+            school_id=school_id,
+            academic_year_id=req.academic_year_id,
+            grade_id=req.grade_id,
+            section_id=req.section_id,
+            teacher_user_id=req.teacher_user_id,
+            source="MANUAL_OVERRIDE",
+            derived_from_day_pattern_key="REGULAR" # Defaulting
+        )
+        db.add(assignment)
+
+    # Audit
+    audit = AuditLog(
+        actor_id=str(user.id),
+        action_type="OVERRIDE_CLASS_TEACHER",
+        table_name="class_teacher_assignments",
+        school_id=school_id,
+        metadata=json.dumps(req.dict()),
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(audit)
+    
+    db.commit()
+    return {"message": "Class teacher overridden"}
+    
+@router.get("/class-teachers", response_model=academic_schemas.ClassTeacherAssignmentResponse)
+def get_class_teacher(
+    academic_year_id: str,
+    grade_id: str,
+    section_id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER))
+):
+    assignment = db.query(academic_models.ClassTeacherAssignment).filter(
+        academic_models.ClassTeacherAssignment.school_id == str(tenant.school_id),
+        academic_models.ClassTeacherAssignment.academic_year_id == academic_year_id,
+        academic_models.ClassTeacherAssignment.grade_id == grade_id,
+        academic_models.ClassTeacherAssignment.section_id == section_id
+    ).first()
+    
+    if not assignment:
+        return None # Or specific structure for null
+        
+    resp = academic_schemas.ClassTeacherAssignmentResponse.from_orm(assignment)
+    
+    # Fetch Teacher Name helper
+    teacher = db.query(school_models.User).filter(school_models.User.id == uuid.UUID(assignment.teacher_user_id)).first()
+    if teacher:
+        resp.teacher_name = f"{teacher.first_name} {teacher.last_name}"
+        
+    return resp
+
+# --- PHASE 2: SUBJECT SCOPING & BOOKS ---
+
+@router.get("/grade-subjects", response_model=List[academic_schemas.GradeSubjectResponse])
+def get_grade_subjects(
+    academic_year_id: str,
+    grade_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER, Roles.STUDENT, Roles.PARENT))
+):
+    query = db.query(academic_models.GradeSubject).filter(
+        academic_models.GradeSubject.school_id == str(tenant.school_id),
+        academic_models.GradeSubject.academic_year_id == academic_year_id
+    )
+    
+    if grade_id:
+        query = query.filter(academic_models.GradeSubject.grade_id == grade_id)
+        
+    grade_subjects = query.all()
+    
+    # Populate helpers
+    results = []
+    for gs in grade_subjects:
+        resp = academic_schemas.GradeSubjectResponse.from_orm(gs)
+        
+        # Subject Info
+        subject = db.query(academic_models.Subject).filter(academic_models.Subject.id == gs.subject_id).first()
+        if subject:
+            resp.subject_name = subject.name
+            resp.subject_code = subject.code
+            
+        # Current Book
+        active_book = db.query(academic_models.GradeSubjectBookVersion).filter(
+            academic_models.GradeSubjectBookVersion.grade_subject_id == gs.id,
+            academic_models.GradeSubjectBookVersion.is_active == True
+        ).first()
+        if active_book:
+            resp.current_book_title = active_book.title
+            
+        results.append(resp)
+        
+    return results
+
+class GradeSubjectCreateRequest(BaseModel):
+    grade_id: str
+    academic_year_id: str
+    name: str # Subject Name
+    code: Optional[str] = None
+    type: str = "CORE"
+    
+    # Initial Book
+    book_title: Optional[str] = None
+    book_publisher: Optional[str] = None
+    book_edition: Optional[str] = None
+
+@router.post("/grade-subjects", response_model=academic_schemas.GradeSubjectResponse)
+def create_grade_subject(
+    req: GradeSubjectCreateRequest,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.ACADEMIC_ADMIN, Roles.SUPER_ADMIN))
+):
+    school_id = str(tenant.school_id)
+    
+    # 1. Resolve Subject Identity
+    # Check if subject with name exists (case insensitive?)
+    existing_subject = db.query(academic_models.Subject).filter(
+        academic_models.Subject.school_id == school_id,
+        academic_models.Subject.name == req.name
+    ).first()
+    
+    if existing_subject:
+        subject_id = existing_subject.id
+        # Update code if not set?
+        if req.code and not existing_subject.code:
+            existing_subject.code = req.code
+            db.add(existing_subject)
+    else:
+        new_subject = academic_models.Subject(
+            school_id=school_id,
+            name=req.name,
+            code=req.code,
+            grade_id=req.grade_id # Optional legacy field
+        )
+        db.add(new_subject)
+        db.flush() # Get ID
+        subject_id = new_subject.id
+        
+    # 2. Check if GradeSubject already exists
+    existing_gs = db.query(academic_models.GradeSubject).filter(
+        academic_models.GradeSubject.school_id == school_id,
+        academic_models.GradeSubject.academic_year_id == req.academic_year_id,
+        academic_models.GradeSubject.grade_id == req.grade_id,
+        academic_models.GradeSubject.subject_id == subject_id
+    ).first()
+    
+    if existing_gs:
+        # Reactivate if inactive?
+        if not existing_gs.is_active:
+            existing_gs.is_active = True
+            db.add(existing_gs)
+            db.commit()
+            db.refresh(existing_gs)
+            # Fetch helpers and return
+            # Simplified return for now
+            resp = academic_schemas.GradeSubjectResponse.from_orm(existing_gs)
+            resp.subject_name = req.name
+            return resp
+        else:
+             raise HTTPException(status_code=400, detail="Subject already assigned to this grade")
+
+    # 3. Create GradeSubject
+    new_gs = academic_models.GradeSubject(
+        school_id=school_id,
+        academic_year_id=req.academic_year_id,
+        grade_id=req.grade_id,
+        subject_id=subject_id,
+        type=req.type
+    )
+    db.add(new_gs)
+    db.flush()
+    
+    # 4. Create Book Version (if provided)
+    if req.book_title:
+        book = academic_models.GradeSubjectBookVersion(
+            school_id=school_id,
+            grade_subject_id=new_gs.id,
+            title=req.book_title,
+            publisher=req.book_publisher,
+            edition=req.book_edition,
+            effective_from=date.today(),
+            is_active=True
+        )
+        db.add(book)
+        
+    db.commit()
+    db.refresh(new_gs)
+    
+    resp = academic_schemas.GradeSubjectResponse.from_orm(new_gs)
+    resp.subject_name = req.name
+    if req.book_title:
+        resp.current_book_title = req.book_title
+        
+    return resp
+
+@router.post("/grade-subjects/{id}/book-versions", response_model=academic_schemas.GradeSubjectBookVersionResponse)
+def add_book_version(
+    id: str,
+    req: academic_schemas.GradeSubjectBookVersionCreate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.ACADEMIC_ADMIN, Roles.SUPER_ADMIN))
+):
+    school_id = str(tenant.school_id)
+    
+    gs = db.query(academic_models.GradeSubject).filter(
+        academic_models.GradeSubject.id == id,
+        academic_models.GradeSubject.school_id == school_id
+    ).first()
+    if not gs:
+        raise HTTPException(status_code=404, detail="Grade Subject not found")
+        
+    # Deactivate current active version
+    current_active = db.query(academic_models.GradeSubjectBookVersion).filter(
+        academic_models.GradeSubjectBookVersion.grade_subject_id == id,
+        academic_models.GradeSubjectBookVersion.is_active == True
+    ).first()
+    
+    if current_active:
+        current_active.is_active = False
+        current_active.effective_to = req.effective_from
+        db.add(current_active)
+        
+    # Add new version
+    new_version = academic_models.GradeSubjectBookVersion(
+        school_id=school_id,
+        grade_subject_id=id,
+        title=req.title,
+        publisher=req.publisher,
+        edition=req.edition,
+        effective_from=req.effective_from,
+        is_active=True
+    )
+    db.add(new_version)
+    db.commit()
+    db.refresh(new_version)
+    
+    return new_version
+
+@router.get("/grade-subjects/{id}/book-versions", response_model=List[academic_schemas.GradeSubjectBookVersionResponse])
+def get_book_versions(
+    id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.TEACHER, Roles.SUPER_ADMIN))
+):
+    return db.query(academic_models.GradeSubjectBookVersion).filter(
+        academic_models.GradeSubjectBookVersion.grade_subject_id == id,
+        academic_models.GradeSubjectBookVersion.school_id == str(tenant.school_id)
+    ).order_by(academic_models.GradeSubjectBookVersion.created_at.desc()).all()
+
+
+# --- TEACHING ASSIGNMENTS (Flexible) ---
+
+@router.get("/teaching-assignments", response_model=List[academic_schemas.TeachingAssignmentResponse])
+def get_teaching_assignments(
+    academic_year_id: str,
+    teacher_user_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.SCHOOL_ADMIN, Roles.ACADEMIC_ADMIN, Roles.TEACHER))
+):
+    school_id = str(tenant.school_id)
+    
+    # If teacher, enforce self? User said "read their own".
+    # If admin, can list all.
+    is_admin = user.role in [Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.SCHOOL_ADMIN, Roles.ACADEMIC_ADMIN]
+    
+    query = db.query(academic_models.TeachingAssignment).filter(
+        academic_models.TeachingAssignment.school_id == school_id,
+        academic_models.TeachingAssignment.academic_year_id == academic_year_id
+    )
+    
+    if not is_admin:
+        # Enforce self
+        query = query.filter(academic_models.TeachingAssignment.teacher_user_id == str(user.id))
+    elif teacher_user_id:
+        query = query.filter(academic_models.TeachingAssignment.teacher_user_id == teacher_user_id)
+        
+    assignments = query.all()
+    
+    # Populate helpers
+    results = []
+    for assign in assignments:
+        resp = academic_schemas.TeachingAssignmentResponse.from_orm(assign)
+        
+        # Details
+        teacher = db.query(school_models.User).filter(school_models.User.id == uuid.UUID(assign.teacher_user_id)).first()
+        if teacher:
+            resp.teacher_name = f"{teacher.first_name} {teacher.last_name}"
+            
+        if assign.grade_subject_id:
+             gs = db.query(academic_models.GradeSubject).filter(academic_models.GradeSubject.id == assign.grade_subject_id).first()
+             if gs:
+                 subj = db.query(academic_models.Subject).filter(academic_models.Subject.id == gs.subject_id).first()
+                 if subj:
+                     resp.subject_name = subj.name
+        
+        if assign.grade_id:
+            grade = db.query(academic_models.Grade).filter(academic_models.Grade.id == assign.grade_id).first()
+            if grade:
+                resp.grade_name = grade.name
+                
+        if assign.section_id:
+            section = db.query(academic_models.Section).filter(academic_models.Section.id == assign.section_id).first()
+            if section:
+                resp.section_name = section.name
+                
+        results.append(resp)
+        
+    return results
+
+@router.post("/teaching-assignments", response_model=academic_schemas.TeachingAssignmentResponse)
+def create_teaching_assignment(
+    req: academic_schemas.TeachingAssignmentCreate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.ACADEMIC_ADMIN, Roles.SUPER_ADMIN))
+):
+    school_id = str(tenant.school_id)
+    
+    # Check if exists
+    existing = db.query(academic_models.TeachingAssignment).filter(
+        academic_models.TeachingAssignment.school_id == school_id,
+        academic_models.TeachingAssignment.academic_year_id == req.academic_year_id,
+        academic_models.TeachingAssignment.teacher_user_id == req.teacher_user_id,
+        academic_models.TeachingAssignment.grade_id == req.grade_id,
+        academic_models.TeachingAssignment.grade_subject_id == req.grade_subject_id,
+        # Section might be null
+        (academic_models.TeachingAssignment.section_id == req.section_id) if req.section_id else academic_models.TeachingAssignment.section_id.is_(None)
+    ).first()
+    
+    if existing:
+        return existing # Idempotent
+        
+    new_assign = academic_models.TeachingAssignment(
+        school_id=school_id,
+        academic_year_id=req.academic_year_id,
+        teacher_user_id=req.teacher_user_id,
+        grade_id=req.grade_id,
+        section_id=req.section_id,
+        grade_subject_id=req.grade_subject_id
+    )
+    db.add(new_assign)
+    db.commit()
+    db.refresh(new_assign)
+    
+    return academic_schemas.TeachingAssignmentResponse.from_orm(new_assign)
+
+@router.delete("/teaching-assignments/{id}")
+def delete_teaching_assignment(
+    id: str,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SCHOOL_ADMIN, Roles.ACADEMIC_ADMIN, Roles.SUPER_ADMIN))
+):
+    assign = db.query(academic_models.TeachingAssignment).filter(
+        academic_models.TeachingAssignment.id == id,
+        academic_models.TeachingAssignment.school_id == str(tenant.school_id)
+    ).first()
+    
+    if assign:
+        db.delete(assign)
+        db.commit()
+        
+    return {"message": "Assignment deleted"}
 # Keeping them below to maintain functionality
 
 class SectionCreate(BaseModel):

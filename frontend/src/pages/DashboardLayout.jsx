@@ -241,6 +241,14 @@ const DashboardLayout = () => {
                   <span>User Management</span>
                 </NavLink>
               )}
+              {/* Teacher Features */}
+              {user?.role === 'teacher' && (
+                <NavLink to="/dashboard/my-students" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                  <Users size={20} />
+                  <span>My Students</span>
+                </NavLink>
+              )}
+
               {['super_admin', 'principal', 'teacher'].includes(user?.role) && (
                 <NavLink to="/dashboard/grading" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <ClipboardList size={20} />

@@ -593,7 +593,7 @@ def get_class_performance(
                 "id": s_obj.id,
                 "name": f"{s_obj.first_name} {s_obj.last_name}",
                 "reason": ", ".join(reasons),
-                "image_url": s_obj.profile_picture
+                "image_url": s_obj.photo_url
             })
             
     # 5. Pending Grading Tasks (Mocked)
@@ -765,7 +765,7 @@ def get_student_risk_summary(
                 "primary_reason": risk_reasons[0][0] if risk_reasons else None,
                 "reason_detail": risk_reasons[0][1] if risk_reasons else None,
                 "all_reasons": [{"type": r[0], "detail": r[1]} for r in risk_reasons],
-                "image_url": student.profile_picture
+                "image_url": student.photo_url
             })
     
     # Sort by risk level (HIGH first)

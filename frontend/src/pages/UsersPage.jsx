@@ -40,6 +40,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { UserProfileDrawer } from "@/components/UserProfileDrawer";
+import { useNavigate } from "react-router-dom";
 import { KeyRound, Trash2, UserCheck, UserX, Search, Plus, ShieldAlert, Edit, Users, BookOpen, Filter } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
@@ -109,7 +112,10 @@ export default function UsersPage() {
     children_ids: [],
   });
 
+  const navigate = useNavigate();
+
   // Modal states
+  const [selectedProfileUser, setSelectedProfileUser] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ open: false, user: null });
   const [resetPasswordModal, setResetPasswordModal] = useState({ open: false, user: null });
   const [editRolesModal, setEditRolesModal] = useState({ open: false, user: null });
@@ -438,6 +444,23 @@ export default function UsersPage() {
     return student ? `${student.first_name} ${student.last_name}` : studentId;
   };
 
+  const handleUserClick = (targetUser) => {
+    if (targetUser.role === 'student') {
+      // Attempt to find linked student record
+      // The /api/students endpoint returns student objects which should have user_id or email match
+      const student = students.find(s => s.email === targetUser.email || s.user_id === targetUser.id);
+      if (student) {
+        navigate(`/dashboard/students/${student.id}`);
+        return;
+      }
+      // If not found in student list (data sync issue?), fall through to drawer or show toast
+      // Falling through to drawer for now so at least something shows
+    }
+
+    // For all other roles (or unlinked students), open the drawer
+    setSelectedProfileUser(targetUser);
+  };
+
   // Format Date Helper
   const formatDate = (dateString) => {
     if (!dateString) return "-";
@@ -741,8 +764,9 @@ export default function UsersPage() {
                       return (
                         <tr
                           key={u.id}
-                          className={`border-b border-slate-800 transition-colors ${u.is_active === false ? "bg-slate-900/30 opacity-60 grayscale-[0.5]" : "hover:bg-slate-800/30"}`}
+                          className={`border-b border-slate-800 transition-colors cursor-pointer ${u.is_active === false ? "bg-slate-900/30 opacity-60 grayscale-[0.5]" : "hover:bg-slate-800/30"}`}
                           data-testid={`users-table-row-${u.id}`}
+                          onClick={() => handleUserClick(u)}
                         >
                           <td className="py-3 pl-4">
                             <div className="flex flex-col">
@@ -865,8 +889,8 @@ export default function UsersPage() {
                                         variant="ghost"
                                         size="sm"
                                         className={`h-8 w-8 p-0 ${u.is_active === false
-                                            ? "text-green-400 hover:text-green-300 hover:bg-green-900/30"
-                                            : "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/30"
+                                          ? "text-green-400 hover:text-green-300 hover:bg-green-900/30"
+                                          : "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/30"
                                           }`}
                                         onClick={() => handleToggleActive(u)}
                                         disabled={actionLoading}
@@ -907,6 +931,16 @@ export default function UsersPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* User Profile Sheet (Drawer) */}
+        {/* User Profile Drawer */}
+        <UserProfileDrawer
+          userId={selectedProfileUser?.id}
+          open={!!selectedProfileUser}
+          onOpenChange={(open) => !open && setSelectedProfileUser(null)}
+        />
+
+        {/* Delete Modal */}
 
         {/* Delete Confirmation Modal */}
         <AlertDialog open={deleteModal.open} onOpenChange={(open) => !open && setDeleteModal({ open: false, user: null })}>

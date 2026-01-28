@@ -524,6 +524,15 @@ async def list_users(
         ))
 
     users = query.all()
+    
+    # Pre-fetch linked students for navigation
+    from students.models import Student
+    user_ids = [str(u.id) for u in users]
+    student_map = {}
+    if user_ids:
+        students = db.query(Student.id, Student.user_id).filter(Student.user_id.in_(user_ids)).all()
+        student_map = {str(s.user_id): s.id for s in students}
+
     results = []
     for u in users:
         # Collect roles
@@ -543,10 +552,55 @@ async def list_users(
             "school_country": u.school.country if u.school else None,
             "phone": u.phone,
             "created_at": u.created_at,
-            "roles": assigned
+            "roles": assigned,
+            "related_student_id": student_map.get(str(u.id))
         })
 
     return results
+
+@router.get("/users/{user_id}", response_model=UserOut)
+async def get_user_profile(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN, "school_admin"))
+):
+    # Enforce school isolation for non-superusers
+    query = db.query(User).filter(User.id == user_id)
+    if current_user.role not in [Roles.SUPER_USER, "superuser"]:
+        query = query.filter(User.school_id == current_user.school_id)
+    
+    user = query.first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Collect roles
+    assigned = [r.role_name for r in user.roles]
+    if user.role not in assigned:
+        assigned.append(user.role)
+    
+    # Check if student
+    related_student_id = None
+    if "student" in assigned:
+        from students.models import Student
+        stu = db.query(Student.id).filter(Student.user_id == str(user.id)).first()
+        if stu:
+            related_student_id = stu.id
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "full_name": f"{user.first_name} {user.last_name}",
+        "role": user.role,
+        "is_active": user.is_active,
+        "school_id": user.school_id,
+        "school_country": user.school.country if user.school else None,
+        "phone": user.phone,
+        "created_at": user.created_at,
+        "roles": assigned,
+        "related_student_id": related_student_id
+    }
 
 @router.patch("/users/{user_id}/roles", response_model=UserOut)
 async def update_user_roles(

@@ -82,7 +82,7 @@ export default function AuditLogsPage() {
             if (currentCursor) params.append("cursor", currentCursor);
             if (searchQuery) params.append("search", searchQuery);
 
-            const res = await axios.get(`${API_BASE}/api/audit-logs?${params.toString()}`, {
+            const res = await axios.get(`${API_BASE}/api/audit/logs?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
 

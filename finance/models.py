@@ -30,6 +30,8 @@ class PaymentStatus(str, enum.Enum):
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
     REJECTED = "REJECTED"
+    PENDING_VERIFICATION = "PENDING_VERIFICATION"
+    CONFIRMED = "CONFIRMED"
 
 class EntrySource(str, enum.Enum):
     REMOTE = "REMOTE"
@@ -76,6 +78,7 @@ class Payment(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
     invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True) # Made nullable to support direct Fee payment
+    student_invoice_id = Column(String, ForeignKey("student_invoices.id"), nullable=True) # New system
     fee_id = Column(String, ForeignKey("fees.id"), nullable=True) # Added to link to Fees
     payment_intent_id = Column(String, ForeignKey("payment_intents.id"), nullable=True)
 
@@ -90,9 +93,12 @@ class Payment(Base):
     entry_source = Column(Enum(EntrySource), default=EntrySource.AUTOMATED, nullable=False)
     verifier_id = Column(String, ForeignKey("users.id"), nullable=True)
     receipt_url = Column(String, nullable=True)
+    reference = Column(String, nullable=True)
     notes = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    paid_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=True)
 
     __table_args__ = (
         UniqueConstraint('gateway', 'gateway_txn_id', name='uq_payment_gateway_txn'),
@@ -171,7 +177,19 @@ class DiscountType(str, enum.Enum):
 class DiscountScope(str, enum.Enum):
     """Whether discount applies to a specific student or a group rule"""
     STUDENT_SPECIFIC = "STUDENT_SPECIFIC"
-    GROUP_RULE = "GROUP_RULE"  # Future extension for auto-selection
+    GROUP_RULE = "GROUP_RULE"
+    ALL_STUDENTS = "ALL_STUDENTS"
+    SPECIFIC_GRADES = "SPECIFIC_GRADES"
+
+class DiscountEligibilityType(str, enum.Enum):
+    MANUAL_APPROVAL = "MANUAL_APPROVAL"
+    SIBLING = "SIBLING"
+    STAFF_CHILD = "STAFF_CHILD"
+    SCHOLARSHIP = "SCHOLARSHIP"
+
+class DiscountApplyTo(str, enum.Enum):
+    ALL_TEMPLATES = "ALL_TEMPLATES"
+    SELECTED_TEMPLATES = "SELECTED_TEMPLATES"
 
 
 class StudentInvoiceStatus(str, enum.Enum):
@@ -256,25 +274,37 @@ class DiscountRule(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     school_id = Column(String, ForeignKey("schools.id"), nullable=False)
-    title = Column(String(200), nullable=False)  # e.g., "School Topper Tuition Waiver"
+    title = Column(String(200), nullable=False)
     
     discount_type = Column(Enum(DiscountType), nullable=False)
-    value = Column(Numeric(12, 2), nullable=True)  # NULL for FULL_WAIVER
+    value = Column(Numeric(12, 2), nullable=True)
     
-    # Which fee template this applies to (NULL = all templates)
+    # Old field - kept for backward compatibility if needed, but new logic relies on apply_to_fee_templates
     applies_to_fee_template_id = Column(String, ForeignKey("fee_item_templates.id"), nullable=True)
-    
-    # Scope type for future group rule extension
-    scope_type = Column(Enum(DiscountScope), default=DiscountScope.STUDENT_SPECIFIC)
-    
-    # For STUDENT_SPECIFIC discounts
-    student_id = Column(String, ForeignKey("students.id"), nullable=True)
-    
+
+    # New fields for multiple templates
+    apply_to_fee_templates = Column(Enum(DiscountApplyTo), default=DiscountApplyTo.ALL_TEMPLATES)
+    fee_template_ids = Column(JSON, nullable=True)  # List of IDs when SELECTED_TEMPLATES
+
+    scope_type = Column(Enum(DiscountScope), default=DiscountScope.ALL_STUDENTS)
+
+    # Scoping fields
+    student_id = Column(String, ForeignKey("students.id"), nullable=True) # For STUDENT_SPECIFIC
+    grade_ids = Column(JSON, nullable=True) # For SPECIFIC_GRADES
+
+    eligibility_type = Column(Enum(DiscountEligibilityType), default=DiscountEligibilityType.MANUAL_APPROVAL)
+
+    # Helper fields for legacy billing logic (can be ignored for new rules)
     billing_type = Column(Enum(BillingType), nullable=False, default=BillingType.RECURRING)
     recurrence = Column(Enum(RecurrenceType), nullable=True)
     
+    # Periods (YYYY-MM) - Optional to keep aligned with billing periods
     start_period = Column(String(7), nullable=True)
     end_period = Column(String(7), nullable=True)
+
+    # Exact Dates (User Requirement)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
     
     is_active = Column(String(5), default="true")
     
@@ -311,11 +341,25 @@ class StudentInvoice(Base):
     
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     issued_at = Column(DateTime, nullable=True)
+    issued_by = Column(String, ForeignKey("users.id"), nullable=True)
+    
+    # Void Logic
+    voided_at = Column(DateTime, nullable=True)
+    voided_by = Column(String, ForeignKey("users.id"), nullable=True)
+    void_reason = Column(String, nullable=True)
+    
+    created_by = Column(String, ForeignKey("users.id"), nullable=True)
+    
+    # Due Date overrides
+    due_date = Column(DateTime, nullable=True) # Default from template or custom
+    
+    student = relationship("Student")
     
     __table_args__ = (
         UniqueConstraint("school_id", "student_id", "period", name="uq_student_invoice_period"),
         Index("idx_student_invoice_school_period", "school_id", "period"),
         Index("idx_student_invoice_school_student", "school_id", "student_id"),
+        Index("idx_student_invoice_status", "school_id", "status"),
     )
 
 
@@ -336,6 +380,9 @@ class InvoiceLine(Base):
     base_amount = Column(Numeric(12, 2), nullable=False)
     discount_amount = Column(Numeric(12, 2), default=0)
     final_amount = Column(Numeric(12, 2), nullable=False)
+    
+    category = Column(String(50), nullable=True) # e.g. TUITION, TRANSPORT
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Store discount rule ID and reason for audit
     line_metadata = Column(JSON, nullable=True)  # {"discount_rule_id": "...", "reason": "..."}

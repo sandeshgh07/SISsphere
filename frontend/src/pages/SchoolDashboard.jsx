@@ -13,6 +13,8 @@ import GradesManagementPage from "./GradesManagementPage";
 import GradesManagementPage from "./GradesManagementPage";
 import CheckoutPage from "./CheckoutPage";
 import BoardDashboard from "./BoardDashboard";
+import TeacherDashboard from "./TeacherDashboard";
+import MyStudentsPage from "./MyStudentsPage";
 import PrincipalOverview from "@/components/PrincipalOverview";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -58,11 +60,13 @@ const RBAC_CONFIG = {
     "grades": ["principal"],  // Grade & Section Management
     "checkout": ["principal", "super_admin", "accountant", "school_admin"],
     "board-analytics": ["super_admin", "board"], // Executive Dashboard
+    "my-students": ["teacher"],
   },
   sidebar: {
     overview: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
     users: ["principal", "super_admin"],
     students: ["principal", "super_admin", "teacher", "accountant", "parent"],
+    "my-students": ["teacher"],
     fees: ["principal", "super_admin", "accountant"],
     notices: ["principal", "super_admin", "teacher", "accountant", "parent", "student"],
     complaints: ["principal", "super_admin", "teacher", "parent"],  // Phase 6.1: Added parent
@@ -88,6 +92,7 @@ const ROUTE_CONFIG = {
   "grades": { title: "Grades & Sections", id: "nav-grades" },
   "checkout": { title: "Checkout", id: "nav-checkout" },
   "board-analytics": { title: "Board Room", id: "nav-board-analytics" },
+  "my-students": { title: "My Students", id: "nav-my-students" },
 };
 
 function canAccessRoute(role, route) {
@@ -269,6 +274,10 @@ function Overview() {
   // Use PrincipalOverview for principal and super_admin roles (after hydration is complete)
   if (effectiveRole === "principal" || effectiveRole === "super_admin") {
     return <PrincipalOverview />;
+  }
+
+  if (effectiveRole === "teacher") {
+    return <TeacherDashboard />;
   }
 
   // Role-based card visibility
@@ -763,6 +772,14 @@ function SchoolDashboard() {
               element={
                 <ProtectedRoute route="checkout" userRole={effectiveRole}>
                   <CheckoutPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="my-students"
+              element={
+                <ProtectedRoute route="my-students" userRole={effectiveRole}>
+                  <MyStudentsPage />
                 </ProtectedRoute>
               }
             />

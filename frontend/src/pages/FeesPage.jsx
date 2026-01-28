@@ -22,8 +22,14 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, CheckCircle, XCircle, Clock, Upload, DollarSign, Percent, Users, Search, FileSpreadsheet, AlertCircle, CheckCircle2, Download, TrendingUp, BarChart as BarChartIcon } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Clock, Upload, DollarSign, Percent, Users, Search, FileSpreadsheet, AlertCircle, CheckCircle2, Download, TrendingUp, Edit, Trash2, BarChart as BarChartIcon } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
+import { InvoiceGeneratorModal } from "@/components/finance/InvoiceGeneratorModal";
+import { InvoicesTable } from "@/components/finance/InvoicesTable";
+import { InvoiceDrawer } from "@/components/finance/InvoiceDrawer";
+import { FinanceAnalytics } from "@/components/finance/FinanceAnalytics";
+import { LegacyFeesImport } from "@/components/finance/LegacyFeesImport";
+import { PaymentsLedger } from "@/components/finance/PaymentsLedger";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -47,6 +53,12 @@ export default function FeesPage() {
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("templates"); // Default to templates for new system
+
+  // New Invoice State
+  const [showGenerator, setShowGenerator] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [refreshInvoices, setRefreshInvoices] = useState(0);
 
   // Analytics State
   const [analyticsData, setAnalyticsData] = useState({ snapshot: null, velocity: [] });
@@ -85,9 +97,99 @@ export default function FeesPage() {
   const [verifyAction, setVerifyAction] = useState("verified");
   const [verifyNotes, setVerifyNotes] = useState("");
 
-  // Discount state
+  // Discount state (Legacy)
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
+
+  // New Discount Rule State
+  const [showCreateDiscountRule, setShowCreateDiscountRule] = useState(false);
+  const [newDiscountRule, setNewDiscountRule] = useState({
+    title: "",
+    discount_type: "PERCENT",
+    value: "",
+    scope_type: "ALL_STUDENTS",
+    grade_ids: [],
+    apply_to_fee_templates: "ALL_TEMPLATES",
+    fee_template_ids: [],
+    eligibility_type: "MANUAL_APPROVAL",
+    start_date: "",
+    end_date: "",
+    is_active: true
+  });
+
+  // Edit/Delete States
+  const [editingFee, setEditingFee] = useState(null);
+  const [showEditFee, setShowEditFee] = useState(false);
+  const [deletingFee, setDeletingFee] = useState(null);
+  const [showDeleteFee, setShowDeleteFee] = useState(false);
+
+  const [editingDiscount, setEditingDiscount] = useState(null);
+  const [showEditDiscount, setShowEditDiscount] = useState(false);
+  const [deletingDiscount, setDeletingDiscount] = useState(null);
+  const [showDeleteDiscount, setShowDeleteDiscount] = useState(false);
+
+  const handleToggleDiscountStatus = async (rule) => {
+    try {
+      await axios.post(`${API_BASE}/api/financials/discount-rules/${rule.id}/toggle`, {}, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      toast({ title: "Success", description: "Discount rule status updated" });
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to update status", variant: "destructive" });
+    }
+  };
+
+  const handleCreateDiscountRule = async () => {
+    if (!newDiscountRule.title || !newDiscountRule.discount_type) {
+      toast({ title: "Error", description: "Title and Type are required", variant: "destructive" });
+      return;
+    }
+
+    // Validate value
+    if (newDiscountRule.discount_type !== "FULL_WAIVER") {
+      if (!newDiscountRule.value || parseFloat(newDiscountRule.value) <= 0) {
+        toast({ title: "Error", description: "Value must be greater than 0", variant: "destructive" });
+        return;
+      }
+      if (newDiscountRule.discount_type === "PERCENT" && parseFloat(newDiscountRule.value) > 100) {
+        toast({ title: "Error", description: "Percent cannot exceed 100", variant: "destructive" });
+        return;
+      }
+    }
+
+    try {
+      const payload = {
+        ...newDiscountRule,
+        value: newDiscountRule.value ? parseFloat(newDiscountRule.value) : null,
+        start_date: newDiscountRule.start_date ? new Date(newDiscountRule.start_date).toISOString() : null,
+        end_date: newDiscountRule.end_date ? new Date(newDiscountRule.end_date).toISOString() : null,
+      };
+
+      await axios.post(`${API_BASE}/api/financials/discount-rules/`, payload, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      toast({ title: "Success", description: "Discount rule created" });
+      setShowCreateDiscountRule(false);
+      setNewDiscountRule({
+        title: "",
+        discount_type: "PERCENT",
+        value: "",
+        scope_type: "ALL_STUDENTS",
+        grade_ids: [],
+        apply_to_fee_templates: "ALL_TEMPLATES",
+        fee_template_ids: [],
+        eligibility_type: "MANUAL_APPROVAL",
+        start_date: "",
+        end_date: "",
+        is_active: true
+      });
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: e.response?.data?.detail || "Failed to create rule", variant: "destructive" });
+    }
+  };
 
   // CSV Import state for fees
   const [feeCsvFile, setFeeCsvFile] = useState(null);
@@ -137,11 +239,10 @@ export default function FeesPage() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${accessToken}` };
-      const [feesRes, templatesRes, discountsRes, invoicesRes, paymentsRes, studentsRes, gradesRes] = await Promise.all([
+      const [feesRes, templatesRes, discountsRes, paymentsRes, studentsRes, gradesRes] = await Promise.all([
         axios.get(`${API_BASE}/api/fees`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/fees/templates`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/fees/discounts`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_BASE}/api/fees/invoices?status=ISSUED`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_BASE}/api/financials/discount-rules/`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/payments`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/students`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API_BASE}/api/academics/grades`, { headers }).catch(() => ({ data: [] })),
@@ -149,7 +250,6 @@ export default function FeesPage() {
       setFees(feesRes.data || []);
       setFeeTemplates(templatesRes.data || []);
       setDiscounts(discountsRes.data || []);
-      setInvoices(invoicesRes.data || []);
       setPayments(paymentsRes.data || []);
       setStudents(studentsRes.data || []);
       setGrades(gradesRes.data || []);
@@ -322,34 +422,7 @@ export default function FeesPage() {
 
 
 
-  const handleGenerateInvoices = async () => {
-    const period = window.prompt("Enter billing period (YYYY-MM):", new Date().toISOString().slice(0, 7));
-    if (!period) return;
 
-    // Simple validation
-    if (!/^\d{4}-\d{2}$/.test(period)) {
-      toast({ title: "Invalid Format", description: "Use YYYY-MM format", variant: "destructive" });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await axios.post(
-        `${API_BASE}/api/fees/invoices/generate`,
-        { period },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      toast({
-        title: "Generation Complete",
-        description: `Created: ${res.data.invoices_created}, Updated: ${res.data.invoices_updated}`
-      });
-      loadData();
-    } catch (e) {
-      toast({ title: "Error", description: e.response?.data?.detail || "Generation failed", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateFee = async () => {
     if (!newFee.title || !newFee.amount) {
@@ -381,6 +454,51 @@ export default function FeesPage() {
       loadData();
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.detail || "Failed to create fee template", variant: "destructive" });
+    }
+  };
+
+  const handleUpdateFee = async () => {
+    if (!editingFee.title || !editingFee.amount) {
+      toast({ title: "Error", description: "Title and amount are required", variant: "destructive" });
+      return;
+    }
+    try {
+      await axios.put(
+        `${API_BASE}/api/fees/templates/${editingFee.id}`,
+        {
+          title: editingFee.title,
+          amount: parseFloat(editingFee.amount),
+          grade_id: editingFee.grade_id || null,
+          billing_type: editingFee.billing_type,
+          recurrence: editingFee.billing_type === "RECURRING" ? editingFee.recurrence : null,
+          start_period: editingFee.start_period || null,
+          end_period: editingFee.end_period || null,
+          is_optional_addon: editingFee.is_optional_addon,
+          is_active: editingFee.is_active === "true" || editingFee.is_active === true
+        },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      toast({ title: "Success", description: "Fee template updated successfully" });
+      setShowEditFee(false);
+      setEditingFee(null);
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: e.response?.data?.detail || "Failed to update fee template", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteFee = async () => {
+    try {
+      await axios.delete(
+        `${API_BASE}/api/fees/templates/${deletingFee.id}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      toast({ title: "Success", description: "Fee template deactivated" });
+      setShowDeleteFee(false);
+      setDeletingFee(null);
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: e.response?.data?.detail || "Failed to deactivate template", variant: "destructive" });
     }
   };
 
@@ -461,6 +579,47 @@ export default function FeesPage() {
       loadData();
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.detail || "Failed to apply discount", variant: "destructive" });
+    }
+  };
+
+  const handleUpdateDiscountRule = async () => {
+    if (!editingDiscount.title || !editingDiscount.discount_type) {
+      toast({ title: "Error", description: "Title and Type are required", variant: "destructive" });
+      return;
+    }
+    try {
+      const payload = {
+        ...editingDiscount,
+        value: editingDiscount.value ? parseFloat(editingDiscount.value) : null,
+        start_date: editingDiscount.start_date ? new Date(editingDiscount.start_date).toISOString() : null,
+        end_date: editingDiscount.end_date ? new Date(editingDiscount.end_date).toISOString() : null,
+      };
+
+      await axios.patch(`${API_BASE}/api/financials/discount-rules/${editingDiscount.id}`, payload, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      toast({ title: "Success", description: "Discount rule updated" });
+      setShowEditDiscount(false);
+      setEditingDiscount(null);
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: e.response?.data?.detail || "Failed to update rule", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteDiscountRule = async () => {
+    try {
+      await axios.delete(`${API_BASE}/api/financials/discount-rules/${deletingDiscount.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      toast({ title: "Success", description: "Discount rule deleted" });
+      setShowDeleteDiscount(false);
+      setDeletingDiscount(null);
+      loadData();
+    } catch (e) {
+      toast({ title: "Error", description: e.response?.data?.detail || "Failed to delete rule", variant: "destructive" });
     }
   };
 
@@ -640,6 +799,7 @@ export default function FeesPage() {
                         <th className="p-3 font-semibold">Grade</th>
                         <th className="p-3 font-semibold">Billing</th>
                         <th className="p-3 font-semibold">Active</th>
+                        <th className="p-3 font-semibold text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -656,7 +816,36 @@ export default function FeesPage() {
                             </Badge>
                           </td>
                           <td className="p-3">
-                            {t.is_active === "true" ? <Badge className="bg-green-600">Active</Badge> : <Badge className="bg-slate-200 text-slate-600 hover:bg-slate-300">Inactive</Badge>}
+                            {t.is_active === "true" || t.is_active === true ? <Badge className="bg-green-600">Active</Badge> : <Badge className="bg-slate-200 text-slate-600 hover:bg-slate-300">Inactive</Badge>}
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-emerald-600"
+                                onClick={() => {
+                                  setEditingFee({
+                                    ...t,
+                                    is_optional_addon: t.is_optional_addon === "true" || t.is_optional_addon === true
+                                  });
+                                  setShowEditFee(true);
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
+                                onClick={() => {
+                                  setDeletingFee(t);
+                                  setShowDeleteFee(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -669,257 +858,101 @@ export default function FeesPage() {
         </TabsContent>
 
         <TabsContent value="discounts" className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => toast({ description: "Coming soon!" })} variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">Create Discount Rule</Button>
+          <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Search className="w-5 h-5 text-slate-400" />
+              <Input className="border-none shadow-none focus-visible:ring-0 max-w-xs" placeholder="Search rules..." />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => setShowCreateDiscountRule(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Discount Rule
+              </Button>
+            </div>
           </div>
+
           <Card className="bg-white border-slate-200 shadow-sm">
-            <CardHeader><CardTitle className="text-slate-900">Discount Rules</CardTitle></CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {loading ? <div className="text-center py-10">Loading...</div> : (
-                <div className="rounded-md border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
+                    <thead className="bg-slate-50 text-slate-700 border-b border-slate-200 uppercase text-xs font-semibold">
                       <tr>
-                        <th className="p-3 font-semibold">Title</th>
-                        <th className="p-3 font-semibold">Type</th>
-                        <th className="p-3 font-semibold">Value</th>
-                        <th className="p-3 font-semibold">Scope</th>
-                        <th className="p-3 font-semibold">Status</th>
+                        <th className="px-6 py-3">Title</th>
+                        <th className="px-6 py-3">Type</th>
+                        <th className="px-6 py-3">Value</th>
+                        <th className="px-6 py-3">Scope</th>
+                        <th className="px-6 py-3">Status</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {discounts.length === 0 ? (
-                        <tr><td colSpan="5" className="p-4 text-center text-slate-500">No discount rules found</td></tr>
-                      ) : discounts.map(d => (
-                        <tr key={d.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-medium text-slate-900">{d.title}</td>
-                          <td className="p-3 text-slate-700">{d.discount_type}</td>
-                          <td className="p-3 text-slate-700">{d.value ? `${d.value}` : "Full Waiver"}</td>
-                          <td className="p-3 text-slate-700">{d.scope_type}</td>
-                          <td className="p-3">
-                            {d.is_active === "true" ? <Badge className="bg-green-600">Active</Badge> : <Badge className="bg-slate-200 text-slate-600 hover:bg-slate-300">Inactive</Badge>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="invoices" className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={handleGenerateInvoices} variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">Run Generator</Button>
-          </div>
-          <Card className="bg-white border-slate-200 shadow-sm">
-            <CardHeader><CardTitle className="text-slate-900">Student Invoices</CardTitle></CardHeader>
-            <CardContent>
-              {loading ? <div className="text-center py-10">Loading...</div> : (
-                <div className="rounded-md border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
-                      <tr>
-                        <th className="p-3 font-semibold">Period</th>
-                        <th className="p-3 font-semibold">Student</th>
-                        <th className="p-3 font-semibold">Due</th>
-                        <th className="p-3 font-semibold">Paid</th>
-                        <th className="p-3 font-semibold">Balance</th>
-                        <th className="p-3 font-semibold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {invoices.length === 0 ? (
-                        <tr><td colSpan="6" className="p-4 text-center text-slate-500">No invoices found</td></tr>
-                      ) : invoices.map(inv => {
-                        const student = students.find(s => s.id === inv.student_id);
-                        return (
-                          <tr key={inv.id} className="hover:bg-slate-50">
-                            <td className="p-3 font-medium text-slate-900">{inv.period}</td>
-                            <td className="p-3 text-slate-700">{student ? `${student.first_name} ${student.last_name}` : "Unknown"}</td>
-                            <td className="p-3 text-slate-700">NPR {inv.total_due}</td>
-                            <td className="p-3 text-slate-700">NPR {inv.paid_total}</td>
-                            <td className="p-3 font-bold text-slate-900">NPR {inv.balance}</td>
-                            <td className="p-3">
-                              <Badge variant="outline" className="border-slate-300 text-slate-700">{inv.status}</Badge>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="fees" className="space-y-6">
-          {/* Role-based info */}
-          {isParent && (
-            <Card className="bg-sky-50 border-sky-100">
-              <CardContent className="py-3 flex items-center gap-3">
-                <Users className="h-5 w-5 text-sky-600" />
-                <p className="text-sm text-sky-700">Showing fees and payments for your children.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Fees List */}
-          <Card className="bg-white border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-slate-900 flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-emerald-600" />
-                Fee Structure
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {fees.length === 0 ? (
-                <div className="text-center py-8">
-                  <DollarSign className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500">No fees configured yet.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
-                      <tr>
-                        <th className="p-3 font-semibold">Title</th>
-                        <th className="p-3 font-semibold">Amount (NPR)</th>
-                        <th className="p-3 font-semibold">Grade</th>
-                        <th className="p-3 font-semibold">Due Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {fees.map((fee) => (
-                        <tr key={fee.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-medium text-slate-900">{fee.title}</td>
-                          <td className="p-3 text-slate-700">{fee.amount?.toLocaleString()}</td>
-                          <td className="p-3 text-slate-700">{getGradeName(fee.grade_id)}</td>
-                          <td className="p-3 text-slate-700">{fee.due_date ? new Date(fee.due_date).toLocaleDateString() : "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Payments List */}
-          <Card className="bg-white border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-slate-900 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                Payments
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {payments.length === 0 ? (
-                <div className="text-center py-8">
-                  <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500">No payments recorded yet.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
-                      <tr>
-                        <th className="p-3 font-semibold">Student</th>
-                        <th className="p-3 font-semibold">Fee</th>
-                        <th className="p-3 font-semibold">Amount</th>
-                        <th className="p-3 font-semibold">Status</th>
-                        <th className="p-3 font-semibold">Verified By</th>
-                        <th className="p-3 font-semibold">Verified At</th>
-                        <th className="p-3 font-semibold">Discount</th>
-                        {canVerifyPayments && <th className="p-3 font-semibold">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {payments.map((payment) => (
-                        <tr key={payment.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-medium text-slate-900">{getStudentName(payment.student_id)}</td>
-                          <td className="p-3 text-slate-700">{getFeeName(payment.fee_id)}</td>
-                          <td className="p-3 text-slate-700">
-                            <div>
-                              <span>NPR {payment.amount?.toLocaleString()}</span>
-                              {payment.original_amount && payment.original_amount !== payment.amount && (
-                                <span className="text-xs text-slate-400 line-through ml-2">
-                                  {payment.original_amount?.toLocaleString()}
-                                </span>
-                              )}
+                        <tr>
+                          <td colSpan="6" className="p-12 text-center">
+                            <div className="flex flex-col items-center justify-center space-y-3">
+                              <div className="bg-slate-100 p-3 rounded-full">
+                                <Percent className="w-8 h-8 text-slate-400" />
+                              </div>
+                              <h3 className="text-lg font-medium text-slate-900">No discount rules yet</h3>
+                              <p className="text-slate-500 max-w-sm text-center">Create rules like Scholarship, Sibling Discount, or Early Payment to automatically apply discounts to invoices.</p>
+                              <Button onClick={() => setShowCreateDiscountRule(true)} variant="outline" className="mt-2">Create Discount Rule</Button>
                             </div>
                           </td>
-                          <td className="p-3">{getStatusBadge(payment.status)}</td>
-                          <td className="p-3 text-slate-700">
-                            {payment.verified_by ? (
-                              <div className="text-xs">
-                                <span className="text-slate-600">{ROLE_LABELS[payment.verified_by_role] || payment.verified_by_role}</span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
+                        </tr>
+                      ) : discounts.map(d => (
+                        <tr key={d.id} className="hover:bg-slate-50 group">
+                          <td className="px-6 py-4 font-medium text-slate-900">{d.title}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            <Badge variant="secondary">{d.discount_type.replace('_', ' ')}</Badge>
                           </td>
-                          <td className="p-3 text-slate-700">
-                            {payment.verified_at ? (
-                              <span className="text-xs text-slate-500">
-                                {new Date(payment.verified_at).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
+                          <td className="px-6 py-4 text-slate-600 font-mono">
+                            {d.discount_type === 'FULL_WAIVER' ? '100%' : (d.discount_type === 'PERCENT' ? `${d.value}%` : `NPR ${d.value}`)}
                           </td>
-                          <td className="p-3">
-                            {payment.discount_amount ? (
-                              <div className="text-xs">
-                                {payment.discount_title && (
-                                  <p className="text-emerald-600 font-medium">{payment.discount_title}</p>
-                                )}
-                                <span className="text-emerald-600">-NPR {payment.discount_amount?.toLocaleString()}</span>
-                                {payment.discount_reason && (
-                                  <p className="text-slate-500 truncate max-w-24" title={payment.discount_reason}>
-                                    {payment.discount_reason}
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
+                          <td className="px-6 py-4 text-slate-600">
+                            <div className="flex flex-col text-xs">
+                              <span>{d.scope_type.replace('_', ' ')}</span>
+                              {d.scope_type === 'SPECIFIC_GRADES' && <span className="text-slate-400">{d.grade_ids?.length || 0} grades</span>}
+                            </div>
                           </td>
-                          {canVerifyPayments && (
-                            <td className="p-3">
-                              <div className="flex gap-1">
-                                {(payment.status === "PENDING" || payment.status === "pending") && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="border-slate-300 text-slate-600 text-xs hover:bg-slate-50"
-                                    onClick={() => {
-                                      setSelectedPayment(payment);
-                                      setShowVerifyPayment(true);
-                                    }}
-                                  >
-                                    Verify
-                                  </Button>
-                                )}
-                                {canApplyDiscount && (payment.status !== "REJECTED" && payment.status !== "rejected") && !payment.discount_amount && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-emerald-600 text-xs hover:bg-emerald-50 hover:text-emerald-700"
-                                    onClick={() => {
-                                      setSelectedPayment(payment);
-                                      setShowDiscount(true);
-                                    }}
-                                  >
-                                    <Percent className="w-3 h-3 mr-1" />
-                                    Discount
-                                  </Button>
-                                )}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div onClick={() => handleToggleDiscountStatus(d)} className={`w-8 h-4 rounded-full cursor-pointer transition-colors relative ${d.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${d.is_active ? 'left-4.5' : 'left-0.5'}`} />
                               </div>
-                            </td>
-                          )}
+                              <span className="text-xs text-slate-500">{d.is_active ? 'Active' : 'Inactive'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-emerald-600"
+                                onClick={() => {
+                                  setEditingDiscount({
+                                    ...d,
+                                    start_date: d.start_date ? d.start_date.split('T')[0] : "",
+                                    end_date: d.end_date ? d.end_date.split('T')[0] : ""
+                                  });
+                                  setShowEditDiscount(true);
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
+                                onClick={() => {
+                                  setDeletingDiscount(d);
+                                  setShowDeleteDiscount(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -928,68 +961,377 @@ export default function FeesPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Create Discount Modal */}
+        <Dialog open={showCreateDiscountRule} onOpenChange={setShowCreateDiscountRule}>
+          <DialogContent className="max-w-2xl bg-white shadow-xl">
+            <DialogHeader>
+              <DialogTitle className="text-slate-900">Create Discount Rule</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto px-1">
+              {/* Basics */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2 col-span-2">
+                  <Label className="text-slate-700">Rule Title</Label>
+                  <Input className="bg-white border-slate-300 text-slate-900" placeholder="e.g. Merit Scholarship" value={newDiscountRule.title} onChange={e => setNewDiscountRule({ ...newDiscountRule, title: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-700">Type</Label>
+                  <Select value={newDiscountRule.discount_type} onValueChange={v => setNewDiscountRule({ ...newDiscountRule, discount_type: v })}>
+                    <SelectTrigger className="bg-white border-slate-300 text-slate-900"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-white border-slate-200">
+                      <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+                      <SelectItem value="FIXED_AMOUNT">Fixed Amount (NPR)</SelectItem>
+                      <SelectItem value="FULL_WAIVER">Full Waiver</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {newDiscountRule.discount_type !== 'FULL_WAIVER' && (
+                  <div className="space-y-2">
+                    <Label className="text-slate-700">Value</Label>
+                    <Input className="bg-white border-slate-300 text-slate-900" type="number" placeholder="0.00" value={newDiscountRule.value} onChange={e => setNewDiscountRule({ ...newDiscountRule, value: e.target.value })} />
+                  </div>
+                )}
+              </div>
+
+              {/* Sections Divider */}
+              <div className="h-px bg-slate-100 my-2" />
+
+              {/* Scope */}
+              <div className="space-y-3">
+                <Label className="text-base font-semibold">Scope</Label>
+                <div className="flex gap-4">
+                  <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${newDiscountRule.scope_type === 'ALL_STUDENTS' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setNewDiscountRule({ ...newDiscountRule, scope_type: 'ALL_STUDENTS', grade_ids: [] })}>
+                    <div className="font-medium text-sm">All Students</div>
+                  </div>
+                  <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${newDiscountRule.scope_type === 'SPECIFIC_GRADES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setNewDiscountRule({ ...newDiscountRule, scope_type: 'SPECIFIC_GRADES' })}>
+                    <div className="font-medium text-sm">Specific Grades</div>
+                  </div>
+                </div>
+
+                {newDiscountRule.scope_type === 'SPECIFIC_GRADES' && (
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                    {grades.map(g => (
+                      <div key={g.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`grade-${g.id}`}
+                          checked={newDiscountRule.grade_ids.includes(String(g.id))}
+                          onChange={e => {
+                            const gid = String(g.id);
+                            const newIds = e.target.checked
+                              ? [...newDiscountRule.grade_ids, gid]
+                              : newDiscountRule.grade_ids.filter(id => id !== gid);
+                            setNewDiscountRule({ ...newDiscountRule, grade_ids: newIds });
+                          }}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <label htmlFor={`grade-${g.id}`} className="text-sm text-slate-700 cursor-pointer">{g.name}</label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Apply To */}
+              <div className="space-y-3">
+                <Label className="text-base font-semibold">Apply To</Label>
+                <div className="flex gap-4">
+                  <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${newDiscountRule.apply_to_fee_templates === 'ALL_TEMPLATES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setNewDiscountRule({ ...newDiscountRule, apply_to_fee_templates: 'ALL_TEMPLATES', fee_template_ids: [] })}>
+                    <div className="font-medium text-sm">All Fees</div>
+                  </div>
+                  <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${newDiscountRule.apply_to_fee_templates === 'SELECTED_TEMPLATES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setNewDiscountRule({ ...newDiscountRule, apply_to_fee_templates: 'SELECTED_TEMPLATES' })}>
+                    <div className="font-medium text-sm">Selected Fees only</div>
+                  </div>
+                </div>
+                {newDiscountRule.apply_to_fee_templates === 'SELECTED_TEMPLATES' && (
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                    {feeTemplates.map(t => (
+                      <div key={t.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`temp-${t.id}`}
+                          checked={newDiscountRule.fee_template_ids.includes(String(t.id))}
+                          onChange={e => {
+                            const tid = String(t.id);
+                            const newIds = e.target.checked
+                              ? [...newDiscountRule.fee_template_ids, tid]
+                              : newDiscountRule.fee_template_ids.filter(id => id !== tid);
+                            setNewDiscountRule({ ...newDiscountRule, fee_template_ids: newIds });
+                          }}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <label htmlFor={`temp-${t.id}`} className="text-sm text-slate-700 cursor-pointer truncate" title={t.title}>{t.title} ({t.amount})</label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Eligibility & Dates */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Eligibility</Label>
+                  <Select value={newDiscountRule.eligibility_type} onValueChange={v => setNewDiscountRule({ ...newDiscountRule, eligibility_type: v })}>
+                    <SelectTrigger className="bg-white border-slate-300 text-slate-900"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-white border-slate-200">
+                      <SelectItem value="MANUAL_APPROVAL">Manual Approval</SelectItem>
+                      <SelectItem value="SIBLING">Sibling Discount</SelectItem>
+                      <SelectItem value="STAFF_CHILD">Staff Child</SelectItem>
+                      <SelectItem value="SCHOLARSHIP">Scholarship</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <div className="flex items-center gap-2 mt-2">
+                    <div onClick={() => setNewDiscountRule({ ...newDiscountRule, is_active: !newDiscountRule.is_active })} className={`w-10 h-6 rounded-full cursor-pointer transition-colors relative ${newDiscountRule.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${newDiscountRule.is_active ? 'left-5' : 'left-1'}`} />
+                    </div>
+                    <span className="text-sm font-medium">{newDiscountRule.is_active ? 'Active' : 'Inactive'}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Start Date (Optional)</Label>
+                  <Input type="date" value={newDiscountRule.start_date} onChange={e => setNewDiscountRule({ ...newDiscountRule, start_date: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date (Optional)</Label>
+                  <Input type="date" value={newDiscountRule.end_date} onChange={e => setNewDiscountRule({ ...newDiscountRule, end_date: e.target.value })} />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCreateDiscountRule(false)}>Cancel</Button>
+              <Button onClick={handleCreateDiscountRule} className="bg-emerald-600 hover:bg-emerald-700 text-white">Create Rule</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Discount Rule Modal */}
+        <Dialog open={showEditDiscount} onOpenChange={setShowEditDiscount}>
+          <DialogContent className="max-w-2xl bg-white shadow-xl">
+            <DialogHeader>
+              <DialogTitle className="text-slate-900">Edit Discount Rule</DialogTitle>
+            </DialogHeader>
+            {editingDiscount && (
+              <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto px-1">
+                {/* Basics */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-slate-700">Rule Title</Label>
+                    <Input className="bg-white border-slate-300 text-slate-900" value={editingDiscount.title} onChange={e => setEditingDiscount({ ...editingDiscount, title: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700">Type</Label>
+                    <Select value={editingDiscount.discount_type} onValueChange={v => setEditingDiscount({ ...editingDiscount, discount_type: v })}>
+                      <SelectTrigger className="bg-white border-slate-300 text-slate-900"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200">
+                        <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+                        <SelectItem value="FIXED_AMOUNT">Fixed Amount (NPR)</SelectItem>
+                        <SelectItem value="FULL_WAIVER">Full Waiver</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {editingDiscount.discount_type !== 'FULL_WAIVER' && (
+                    <div className="space-y-2">
+                      <Label className="text-slate-700">Value</Label>
+                      <Input className="bg-white border-slate-300 text-slate-900" type="number" value={editingDiscount.value} onChange={e => setEditingDiscount({ ...editingDiscount, value: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-px bg-slate-100 my-2" />
+
+                {/* Scope */}
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Scope</Label>
+                  <div className="flex gap-4">
+                    <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${editingDiscount.scope_type === 'ALL_STUDENTS' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setEditingDiscount({ ...editingDiscount, scope_type: 'ALL_STUDENTS', grade_ids: [] })}>
+                      <div className="font-medium text-sm">All Students</div>
+                    </div>
+                    <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${editingDiscount.scope_type === 'SPECIFIC_GRADES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setEditingDiscount({ ...editingDiscount, scope_type: 'SPECIFIC_GRADES' })}>
+                      <div className="font-medium text-sm">Specific Grades</div>
+                    </div>
+                  </div>
+
+                  {editingDiscount.scope_type === 'SPECIFIC_GRADES' && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                      {grades.map(g => (
+                        <div key={g.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`edit-grade-${g.id}`}
+                            checked={editingDiscount.grade_ids?.includes(String(g.id))}
+                            onChange={e => {
+                              const gid = String(g.id);
+                              const newIds = e.target.checked
+                                ? [...(editingDiscount.grade_ids || []), gid]
+                                : (editingDiscount.grade_ids || []).filter(id => id !== gid);
+                              setEditingDiscount({ ...editingDiscount, grade_ids: newIds });
+                            }}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <label htmlFor={`edit-grade-${g.id}`} className="text-sm text-slate-700 cursor-pointer">{g.name}</label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Apply To */}
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Apply To</Label>
+                  <div className="flex gap-4">
+                    <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${editingDiscount.apply_to_fee_templates === 'ALL_TEMPLATES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setEditingDiscount({ ...editingDiscount, apply_to_fee_templates: 'ALL_TEMPLATES', fee_template_ids: [] })}>
+                      <div className="font-medium text-sm">All Fees</div>
+                    </div>
+                    <div className={`p-3 border rounded-lg cursor-pointer flex-1 ${editingDiscount.apply_to_fee_templates === 'SELECTED_TEMPLATES' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-200'}`} onClick={() => setEditingDiscount({ ...editingDiscount, apply_to_fee_templates: 'SELECTED_TEMPLATES' })}>
+                      <div className="font-medium text-sm">Selected Fees only</div>
+                    </div>
+                  </div>
+                  {editingDiscount.apply_to_fee_templates === 'SELECTED_TEMPLATES' && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                      {feeTemplates.map(t => (
+                        <div key={t.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`edit-temp-${t.id}`}
+                            checked={editingDiscount.fee_template_ids?.includes(String(t.id))}
+                            onChange={e => {
+                              const tid = String(t.id);
+                              const newIds = e.target.checked
+                                ? [...(editingDiscount.fee_template_ids || []), tid]
+                                : (editingDiscount.fee_template_ids || []).filter(id => id !== tid);
+                              setEditingDiscount({ ...editingDiscount, fee_template_ids: newIds });
+                            }}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <label htmlFor={`edit-temp-${t.id}`} className="text-sm text-slate-700 cursor-pointer truncate" title={t.title}>{t.title}</label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Eligibility & Dates */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Eligibility</Label>
+                    <Select value={editingDiscount.eligibility_type} onValueChange={v => setEditingDiscount({ ...editingDiscount, eligibility_type: v })}>
+                      <SelectTrigger className="bg-white border-slate-300 text-slate-900"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200">
+                        <SelectItem value="MANUAL_APPROVAL">Manual Approval</SelectItem>
+                        <SelectItem value="SIBLING">Sibling Discount</SelectItem>
+                        <SelectItem value="STAFF_CHILD">Staff Child</SelectItem>
+                        <SelectItem value="SCHOLARSHIP">Scholarship</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div onClick={() => setEditingDiscount({ ...editingDiscount, is_active: !editingDiscount.is_active })} className={`w-10 h-6 rounded-full cursor-pointer transition-colors relative ${editingDiscount.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${editingDiscount.is_active ? 'left-5' : 'left-1'}`} />
+                      </div>
+                      <span className="text-sm font-medium">{editingDiscount.is_active ? 'Active' : 'Inactive'}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Start Date (Optional)</Label>
+                    <Input type="date" value={editingDiscount.start_date} onChange={e => setEditingDiscount({ ...editingDiscount, start_date: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Date (Optional)</Label>
+                    <Input type="date" value={editingDiscount.end_date} onChange={e => setEditingDiscount({ ...editingDiscount, end_date: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditDiscount(false)}>Cancel</Button>
+              <Button onClick={handleUpdateDiscountRule} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Discount Confirmation Dialog */}
+        <Dialog open={showDeleteDiscount} onOpenChange={setShowDeleteDiscount}>
+          <DialogContent className="bg-white border-slate-200 text-slate-900 shadow-lg sm:rounded-xl">
+            <DialogHeader>
+              <DialogTitle>Delete Discount Rule</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <p className="text-slate-600">
+                Are you sure you want to delete the discount rule <span className="font-semibold text-slate-900">"{deletingDiscount?.title}"</span>?
+              </p>
+              <p className="text-sm text-rose-500 mt-2 font-medium">
+                Warning: This action is permanent and cannot be undone. Existing invoices with this discount applied will not be affected.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeleteDiscount(false)}>Cancel</Button>
+              <Button onClick={handleDeleteDiscountRule} className="bg-rose-600 hover:bg-rose-700 text-white">Delete Permanently</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <TabsContent value="invoices" className="space-y-4">
+          <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Invoices & Billing</h3>
+              <p className="text-xs text-slate-500">Manage student invoices, issue billing, and track payments.</p>
+            </div>
+            <Button onClick={() => setShowGenerator(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+              <Plus className="w-4 h-4 mr-2" /> Run Invoice Generator
+            </Button>
+          </div>
+
+          <InvoicesTable
+            accessToken={accessToken}
+            grades={grades}
+            onSelectInvoice={(id) => { setSelectedInvoiceId(id); setDrawerOpen(true); }}
+            refreshTrigger={refreshInvoices}
+          />
+
+          <InvoiceGeneratorModal
+            open={showGenerator}
+            onOpenChange={setShowGenerator}
+            grades={grades}
+            feeTemplates={feeTemplates}
+            onSuccess={() => setRefreshInvoices(prev => prev + 1)}
+            accessToken={accessToken}
+          />
+
+          <InvoiceDrawer
+            open={drawerOpen}
+            onOpenChange={setDrawerOpen}
+            invoiceId={selectedInvoiceId}
+            accessToken={accessToken}
+            onInvoiceUpdated={() => setRefreshInvoices(prev => prev + 1)}
+          />
+        </TabsContent>
+
+
+        <TabsContent value="fees" className="space-y-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="space-y-6">
+              <LegacyFeesImport />
+            </div>
+            <div className="space-y-6">
+              <PaymentsLedger />
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader><CardTitle className="text-slate-900">3-Day Revenue Snapshot</CardTitle></CardHeader>
-              <CardContent>
-                {analyticsData.snapshot ? (
-                  <div className="h-[300px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={snapshotData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="name" stroke="#64748b" />
-                        <YAxis stroke="#64748b" />
-                        <RechartsTooltip contentStyle={{ backgroundColor: '#fff', borderColor: '#e2e8f0', color: '#0f172a' }} />
-                        <Bar dataKey="value" name="Revenue (NPR)" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                    <div className="mt-4 text-center">
-                      <p className="text-slate-600">Change (Today vs Yesterday):
-                        <span className={analyticsData.snapshot.percent_change >= 0 ? "text-emerald-600 ml-2" : "text-rose-600 ml-2"}>
-                          {analyticsData.snapshot.percent_change}%
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-[300px] flex items-center justify-center text-slate-500">
-                    No data available
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader><CardTitle className="text-slate-900">Revenue Velocity (Trend)</CardTitle></CardHeader>
-              <CardContent>
-                {analyticsData.velocity.length > 0 ? (
-                  <div className="h-[300px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={analyticsData.velocity}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="period" stroke="#64748b" />
-                        <YAxis stroke="#64748b" />
-                        <RechartsTooltip contentStyle={{ backgroundColor: '#fff', borderColor: '#e2e8f0', color: '#0f172a' }} />
-                        <Line type="monotone" dataKey="amount" stroke="#059669" strokeWidth={2} dot={{ r: 4 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="h-[300px] flex items-center justify-center text-slate-500">
-                    No trend data available
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <FinanceAnalytics />
         </TabsContent>
-      </Tabs>
+      </Tabs >
 
       {/* Create Fee Template Modal */}
-      <Dialog open={showCreateFee} onOpenChange={setShowCreateFee}>
+      < Dialog open={showCreateFee} onOpenChange={setShowCreateFee} >
         <DialogContent className="bg-white border-slate-200 text-slate-900 max-w-lg shadow-lg sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>Create Fee Template</DialogTitle>
@@ -1101,13 +1443,138 @@ export default function FeesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog >
+
+      {/* Edit Fee Template Modal */}
+      <Dialog open={showEditFee} onOpenChange={setShowEditFee}>
+        <DialogContent className="bg-white border-slate-200 text-slate-900 max-w-lg shadow-lg sm:rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Edit Fee Template</DialogTitle>
+          </DialogHeader>
+          {editingFee && (
+            <div className="space-y-4">
+              <div>
+                <Label>Fee Name *</Label>
+                <Input
+                  value={editingFee.title}
+                  onChange={(e) => setEditingFee({ ...editingFee, title: e.target.value })}
+                  placeholder="e.g., Monthly Tuition"
+                  className="bg-white border-slate-300 focus-visible:ring-slate-400"
+                />
+              </div>
+              <div>
+                <Label>Amount (NPR) *</Label>
+                <Input
+                  type="number"
+                  value={editingFee.amount}
+                  onChange={(e) => setEditingFee({ ...editingFee, amount: e.target.value })}
+                  placeholder="5000"
+                  className="bg-white border-slate-300 focus-visible:ring-slate-400"
+                />
+              </div>
+              <div>
+                <Label>Applies to Grade</Label>
+                <Select value={editingFee.grade_id || "__all__"} onValueChange={(val) => setEditingFee({ ...editingFee, grade_id: val === "__all__" ? "" : val })}>
+                  <SelectTrigger className="bg-white border-slate-300 focus:ring-slate-400">
+                    <SelectValue placeholder="All grades" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-slate-200">
+                    <SelectItem value="__all__">All Grades</SelectItem>
+                    {grades.filter(g => g.is_active).map((grade) => (
+                      <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Billing Type *</Label>
+                  <Select value={editingFee.billing_type} onValueChange={(val) => setEditingFee({ ...editingFee, billing_type: val })}>
+                    <SelectTrigger className="bg-white border-slate-300 focus:ring-slate-400">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-slate-200">
+                      <SelectItem value="RECURRING">Recurring</SelectItem>
+                      <SelectItem value="ONE_TIME">One-time</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {editingFee.billing_type === "RECURRING" && (
+                  <div>
+                    <Label>Frequency *</Label>
+                    <Select value={editingFee.recurrence} onValueChange={(val) => setEditingFee({ ...editingFee, recurrence: val })}>
+                      <SelectTrigger className="bg-white border-slate-300 focus:ring-slate-400">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200">
+                        <SelectItem value="MONTHLY">Monthly</SelectItem>
+                        <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                        <SelectItem value="YEARLY">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="edit_is_optional_addon"
+                  checked={editingFee.is_optional_addon}
+                  onChange={(e) => setEditingFee({ ...editingFee, is_optional_addon: e.target.checked })}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <Label htmlFor="edit_is_optional_addon" className="cursor-pointer font-medium text-slate-700">Optional Add-on</Label>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="edit_is_active"
+                  checked={editingFee.is_active === "true" || editingFee.is_active === true}
+                  onChange={(e) => setEditingFee({ ...editingFee, is_active: e.target.checked })}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <Label htmlFor="edit_is_active" className="cursor-pointer font-medium text-slate-700">Active</Label>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditFee(false)}>Cancel</Button>
+            <Button onClick={handleUpdateFee} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">Update Template</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Fee Confirmation Dialog */}
+      <Dialog open={showDeleteFee} onOpenChange={setShowDeleteFee}>
+        <DialogContent className="bg-white border-slate-200 text-slate-900 shadow-lg sm:rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Deactivate Fee Template</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-slate-600">
+              Are you sure you want to deactivate the fee template <span className="font-semibold text-slate-900">"{deletingFee?.title}"</span>?
+            </p>
+            <p className="text-sm text-slate-500 mt-2">
+              This will prevent it from being included in future invoice generations.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteFee(false)}>Cancel</Button>
+            <Button onClick={handleDeleteFee} className="bg-rose-600 hover:bg-rose-700 text-white">Deactivate</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* Record Payment Modal */}
-      <Dialog open={showRecordPayment} onOpenChange={(open) => {
+      < Dialog open={showRecordPayment} onOpenChange={(open) => {
         setShowRecordPayment(open);
         if (!open) { setStudentSearch(""); setFeeSearch(""); }
-      }}>
+      }
+      }>
         <DialogContent className="bg-white border-slate-200 text-slate-900 shadow-lg sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
@@ -1230,10 +1697,10 @@ export default function FeesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Verify Payment Modal */}
-      <Dialog open={showVerifyPayment} onOpenChange={setShowVerifyPayment}>
+      < Dialog open={showVerifyPayment} onOpenChange={setShowVerifyPayment} >
         <DialogContent className="bg-white border-slate-200 text-slate-900 shadow-lg sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>Verify Payment</DialogTitle>
@@ -1285,10 +1752,10 @@ export default function FeesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Discount Modal */}
-      <Dialog open={showDiscount} onOpenChange={setShowDiscount}>
+      < Dialog open={showDiscount} onOpenChange={setShowDiscount} >
         <DialogContent className="bg-white border-slate-200 text-slate-900 shadow-lg sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>Apply Discount</DialogTitle>
@@ -1341,10 +1808,10 @@ export default function FeesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Import Fees CSV Modal */}
-      <Dialog open={showImportFees} onOpenChange={(open) => {
+      < Dialog open={showImportFees} onOpenChange={(open) => {
         setShowImportFees(open);
         if (!open) { setFeeCsvFile(null); setFeeCsvPreview([]); setFeeCsvErrors([]); }
       }}>
@@ -1448,7 +1915,7 @@ export default function FeesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </div>
+      </Dialog >
+    </div >
   );
 }

@@ -75,7 +75,6 @@ export default function ComplaintsPage() {
     target_user_ids: [], // for staff
     student_id: "", // for student
     visible_to_principal: true,
-    visible_to_principal: true,
     visible_to_school_admin: false,
     visible_to_board: false,
     visible_to_parents: false,
@@ -229,7 +228,6 @@ export default function ComplaintsPage() {
       setShowCreateModal(false);
       setNewComplaint({
         title: "", description: "", category: "", severity: "low",
-        target_user_ids: [], student_id: "",
         target_user_ids: [], student_id: "",
         visible_to_principal: true, visible_to_school_admin: false, visible_to_board: false, visible_to_parents: false, visible_to_student: false
       });

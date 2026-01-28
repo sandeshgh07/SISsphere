@@ -47,6 +47,8 @@ import RecordAttendancePage from './pages/RecordAttendancePage';
 import StudentAttendancePage from './pages/StudentAttendancePage';
 import StudentAssessmentsPage from './pages/StudentAssessmentsPage';
 import Student360Profile from './pages/Student360Profile';
+import TeacherDashboard from './pages/TeacherDashboard';
+import MyStudentsPage from './pages/MyStudentsPage';
 
 import GradingWorkspace from './pages/GradingWorkspace';
 import AccountOverviewPage from './pages/AccountOverviewPage';
@@ -119,6 +121,10 @@ const DashboardHome = () => {
 
   if (effectiveRole === "parent") {
     return <ParentDashboard />;
+  }
+
+  if (effectiveRole === "teacher") {
+    return <TeacherDashboard />;
   }
 
   if (effectiveRole === "student") {
@@ -245,6 +251,12 @@ function App() {
             <Route path="assessments" element={
               <RequireRole allowedRoles={['student']}>
                 <StudentAssessmentsPage />
+              </RequireRole>
+            } />
+
+            <Route path="my-students" element={
+              <RequireRole allowedRoles={['teacher']}>
+                <MyStudentsPage />
               </RequireRole>
             } />
 

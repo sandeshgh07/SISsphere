@@ -83,7 +83,7 @@ def _audit(connection, target, action):
     connection.execute(
         audit_table.insert().values(
             id=log_id,
-            actor_id=actor_id,
+            actor_id=str(actor_id) if actor_id else None,
             action_type=action,
             table_name=target.__tablename__,
             record_id=str(target.id) if hasattr(target, 'id') else None,

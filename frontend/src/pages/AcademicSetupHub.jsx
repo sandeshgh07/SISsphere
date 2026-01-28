@@ -39,6 +39,8 @@ import {
     DialogFooter,
     DialogDescription
 } from "@/components/ui/dialog";
+import PeriodStructureManager from "./PeriodStructureManager";
+import SubjectManagement from "@/components/academics/SubjectManagement";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -51,10 +53,9 @@ export default function AcademicSetupHub() {
     // Data States
     const [academicYears, setAcademicYears] = useState([]);
     const [terms, setTerms] = useState([]);
-    const [subjects, setSubjects] = useState([]);
+    // subjects state moved to component
     const [gradingPolicy, setGradingPolicy] = useState(null);
     const [promotionRules, setPromotionRules] = useState(null);
-    const [periodStructure, setPeriodStructure] = useState(null);
 
     // Active Context
     const activeYear = academicYears.find(y => y.is_active);
@@ -66,8 +67,9 @@ export default function AcademicSetupHub() {
     const [showTermModal, setShowTermModal] = useState(false);
     const [newTerm, setNewTerm] = useState({ name: "", start_date: "", end_date: "", weightage: 0, academic_year_id: "" });
 
-    const [showSubjectModal, setShowSubjectModal] = useState(false);
-    const [newSubject, setNewSubject] = useState({ name: "", code: "", is_elective: false, grade_id: "" });
+
+
+    // Subject modal handled in component
 
     // Grading Form State
     const [gradingForm, setGradingForm] = useState({
@@ -79,7 +81,7 @@ export default function AcademicSetupHub() {
 
     // JSON Editors State
     const [rulesJson, setRulesJson] = useState("{}");
-    const [periodJson, setPeriodJson] = useState("{}");
+
 
 
     // Initial Load
@@ -103,8 +105,7 @@ export default function AcademicSetupHub() {
                 const termsRes = await axios.get(`${API_BASE}/api/academics/terms?academic_year_id=${activeAy.id}`, { headers });
                 setTerms(termsRes.data);
             } else if (activeTab === "subjects") {
-                const res = await axios.get(`${API_BASE}/api/academics/subjects`, { headers });
-                setSubjects(res.data);
+                // Handled by component
             } else if (activeTab === "grading" && activeAy) {
                 const res = await axios.get(`${API_BASE}/api/academics/grading-policies?academic_year_id=${activeAy.id}`, { headers });
                 if (res.data && res.data.length > 0) {
@@ -122,15 +123,6 @@ export default function AcademicSetupHub() {
                 } else {
                     setPromotionRules(null);
                     setRulesJson("{\n  \"min_attendance_percent\": 75,\n  \"fail_tolerance_subjects\": 1\n}");
-                }
-            } else if (activeTab === "periods" && activeAy) {
-                const res = await axios.get(`${API_BASE}/api/academics/period-structures?academic_year_id=${activeAy.id}`, { headers });
-                if (res.data && res.data.length > 0) {
-                    setPeriodStructure(res.data[0]);
-                    setPeriodJson(JSON.stringify(res.data[0].structure, null, 2));
-                } else {
-                    setPeriodStructure(null);
-                    setPeriodJson("{\n  \"periods_per_day\": 8,\n  \"break_duration_mins\": 15\n}");
                 }
             }
         } catch (error) {
@@ -181,18 +173,9 @@ export default function AcademicSetupHub() {
         }
     };
 
-    const handleCreateSubject = async () => {
-        try {
-            await axios.post(`${API_BASE}/api/academics/subjects`, newSubject, {
-                headers: { Authorization: `Bearer ${accessToken}` }
-            });
-            toast({ title: "Success", description: "Subject Created" });
-            setShowSubjectModal(false);
-            fetchAllData();
-        } catch (e) {
-            toast({ title: "Error", description: e.response?.data?.detail || "Failed", variant: "destructive" });
-        }
-    };
+
+
+    // Subject creation handled in component
 
     const handleSaveGrading = async () => {
         if (!activeYear) return toast({ title: "Error", description: "No active year", variant: "destructive" });
@@ -229,22 +212,7 @@ export default function AcademicSetupHub() {
         }
     };
 
-    const handleSavePeriod = async () => {
-        if (!activeYear) return toast({ title: "Error", description: "No active year", variant: "destructive" });
-        try {
-            let parsedStruct;
-            try { parsedStruct = JSON.parse(periodJson); } catch (e) { return toast({ title: "Invalid JSON", variant: "destructive" }); }
 
-            await axios.post(`${API_BASE}/api/academics/period-structures`, {
-                academic_year_id: activeYear.id,
-                structure: parsedStruct
-            }, { headers: { Authorization: `Bearer ${accessToken}` } });
-            toast({ title: "Success", description: "Period Structure Saved" });
-            fetchAllData();
-        } catch (e) {
-            toast({ title: "Error", description: "Failed to save structure", variant: "destructive" });
-        }
-    }
 
 
     // --- RENDERING ---
@@ -305,11 +273,8 @@ export default function AcademicSetupHub() {
                                         <Plus className="w-4 h-4 mr-2" /> New Term
                                     </Button>
                                 )}
-                                {activeTab === "subjects" && (
-                                    <Button onClick={() => setShowSubjectModal(true)} className="bg-[#800000] hover:bg-[#600000]">
-                                        <Plus className="w-4 h-4 mr-2" /> New Subject
-                                    </Button>
-                                )}
+
+                                {/* Subjects Add Button Handled in Component */}
                             </div>
                         </div>
                     </CardHeader>
@@ -406,30 +371,7 @@ export default function AcademicSetupHub() {
 
                         {/* SUBJECTS TAB */}
                         {activeTab === "subjects" && (
-                            <div className="space-y-4">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Subject Name</TableHead>
-                                            <TableHead>Code</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Grade Level</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {subjects.map(s => (
-                                            <TableRow key={s.id}>
-                                                <TableCell className="font-medium">{s.name}</TableCell>
-                                                <TableCell>{s.code || "-"}</TableCell>
-                                                <TableCell>
-                                                    {s.is_elective ? <Badge variant="outline">Elective</Badge> : <Badge className="bg-slate-100 text-slate-700 shadow-none hover:bg-slate-200">Core</Badge>}
-                                                </TableCell>
-                                                <TableCell>{s.grade_id ? "Grade Specific" : "Global"}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                            <SubjectManagement activeYear={activeYear} />
                         )}
 
                         {/* GRADING TAB */}
@@ -495,22 +437,9 @@ export default function AcademicSetupHub() {
                         )}
 
                         {/* PERIOD TAB */}
+                        {/* PERIOD TAB */}
                         {activeTab === "periods" && (
-                            <div className="space-y-4">
-                                <div className="bg-blue-50 text-blue-800 p-3 rounded mb-4 text-sm">
-                                    Define Daily Period Structure in JSON.
-                                </div>
-                                <textarea
-                                    className="w-full h-64 p-4 font-mono text-sm bg-slate-50 border border-slate-300 rounded"
-                                    value={periodJson}
-                                    onChange={e => setPeriodJson(e.target.value)}
-                                />
-                                <div className="flex justify-end">
-                                    <Button onClick={handleSavePeriod} className="bg-[#800000] hover:bg-[#600000] text-white">
-                                        <Save className="w-4 h-4 mr-2" /> Save Structure
-                                    </Button>
-                                </div>
-                            </div>
+                            <PeriodStructureManager />
                         )}
 
                     </CardContent>
@@ -586,36 +515,8 @@ export default function AcademicSetupHub() {
                 </DialogContent>
             </Dialog>
 
-            {/* Create Subject Modal */}
-            <Dialog open={showSubjectModal} onOpenChange={setShowSubjectModal}>
-                <DialogContent className="bg-white text-slate-900 border-slate-200 sm:max-w-[425px]">
-                    <DialogHeader><DialogTitle>New Subject</DialogTitle></DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label>Name</Label>
-                            <Input placeholder="e.g. Mathematics" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} className="bg-white border-slate-300" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Code (Optional)</Label>
-                            <Input placeholder="e.g. MTH101" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} className="bg-white border-slate-300" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
-                                id="isElective"
-                                checked={newSubject.is_elective}
-                                onChange={e => setNewSubject({ ...newSubject, is_elective: e.target.checked })}
-                                className="accent-blue-600"
-                            />
-                            <Label htmlFor="isElective">Is Elective?</Label>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button onClick={handleCreateSubject}>Create Subject</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            {/* Create Subject Modal - Handled in Component */}
 
-        </div>
+        </div >
     );
 }
