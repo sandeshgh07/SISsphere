@@ -980,7 +980,7 @@ def override_class_teacher(
     db.commit()
     return {"message": "Class teacher overridden"}
     
-@router.get("/class-teachers", response_model=academic_schemas.ClassTeacherAssignmentResponse)
+@router.get("/class-teachers", response_model=Optional[academic_schemas.ClassTeacherAssignmentResponse])
 def get_class_teacher(
     academic_year_id: str,
     grade_id: str,
@@ -997,7 +997,7 @@ def get_class_teacher(
     ).first()
     
     if not assignment:
-        return None # Or specific structure for null
+        return None
         
     resp = academic_schemas.ClassTeacherAssignmentResponse.from_orm(assignment)
     
@@ -1544,7 +1544,7 @@ def get_syllabus_coverage(
 
     report = []
     for r in results:
-        teacher = db.query(school_models.User).get(r.teacher_id)
+        teacher = db.query(school_models.User).get(uuid.UUID(r.teacher_id))
         subject = db.query(academic_models.Subject).get(r.subject_id)
 
         planned = r.total
@@ -1752,8 +1752,8 @@ def assign_teacher(
     tenant: TenantAccess = Depends(TenantAccess)
 ):
     teacher = db.query(school_models.User).filter(
-        school_models.User.id == assignment.teacher_id,
-        school_models.User.school_id == str(tenant.school_id),
+        school_models.User.id == uuid.UUID(assignment.teacher_id),
+        school_models.User.school_id == uuid.UUID(tenant.school_id),
         school_models.User.role == Roles.TEACHER
     ).first()
 
@@ -2352,11 +2352,15 @@ def get_my_assessments(
     query = query.filter(scope_filter)
 
     # 4. Date Filter
+    time_filter = None
     now = datetime.now(timezone.utc)
+    
     if range == "upcoming":
-        query = query.filter(academic_models.Assessment.due_date >= now).order_by(academic_models.Assessment.due_date.asc())
+        time_filter = or_(academic_models.Assessment.due_date >= now, academic_models.Assessment.due_date == None)
+        query = query.filter(time_filter).order_by(academic_models.Assessment.due_date.asc().nullsfirst())
     elif range == "past":
-        query = query.filter(academic_models.Assessment.due_date < now).order_by(academic_models.Assessment.due_date.desc())
+        time_filter = academic_models.Assessment.due_date < now
+        query = query.filter(time_filter).order_by(academic_models.Assessment.due_date.desc())
     else:
         query = query.order_by(academic_models.Assessment.due_date.desc())
 

@@ -17,7 +17,7 @@ const NoticeFeed = () => {
   const fetchNotices = async () => {
     try {
       console.log("Fetching notices...");
-      const response = await api.get('/notices/feed');
+      const response = await api.get('/communication/notices/feed');
       console.log("Notices fetched:", response.data);
       setNotices(response.data);
     } catch (error) {
@@ -63,7 +63,7 @@ const NoticeFeed = () => {
                   {notice.title}
                   {/* Mock logic for 'New' - ideally based on read status or date */}
                   {new Date(notice.created_at) > new Date(Date.now() - 86400000) && (
-                    <Badge className="bg-nepsis-alert hover:bg-nepsis-alert/90 text-white border-0 text-[10px] px-1.5 py-0 h-5">NEW</Badge>
+                    <Badge className="bg-sissphere-alert hover:bg-sissphere-alert/90 text-white border-0 text-[10px] px-1.5 py-0 h-5">NEW</Badge>
                   )}
                 </CardTitle>
                 <Badge variant={getBadgeVariant(notice.priority)}>{notice.priority}</Badge>

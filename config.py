@@ -1,5 +1,5 @@
 """
-Classa Enterprise Configuration
+SISsphere Enterprise Configuration
 Loads settings from environment variables with secure defaults.
 """
 import os
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     superuser_password: Optional[str] = None
     
     # Database
-    database_url: str = "sqlite:///./classa.db"
+    database_url: str = "sqlite:///./sissphere.db"
     
     # JWT Secret
     secret_key: str = "dev-secret-key-change-in-production"

@@ -30,6 +30,7 @@ import { InvoiceDrawer } from "@/components/finance/InvoiceDrawer";
 import { FinanceAnalytics } from "@/components/finance/FinanceAnalytics";
 import { LegacyFeesImport } from "@/components/finance/LegacyFeesImport";
 import { PaymentsLedger } from "@/components/finance/PaymentsLedger";
+import { LedgerPaymentModal } from "@/components/finance/LedgerPaymentModal";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -96,6 +97,15 @@ export default function FeesPage() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [verifyAction, setVerifyAction] = useState("verified");
   const [verifyNotes, setVerifyNotes] = useState("");
+
+  // Ledger Payment Modal
+  const [showLedgerModal, setShowLedgerModal] = useState(false);
+  const [ledgerModalMode, setLedgerModalMode] = useState("CASH");
+
+  const openLedgerPayment = (mode) => {
+    setLedgerModalMode(mode);
+    setShowLedgerModal(true);
+  };
 
   // Discount state (Legacy)
   const [discountAmount, setDiscountAmount] = useState("");
@@ -768,10 +778,16 @@ export default function FeesPage() {
             </>
           )}
           {canRecordPayment && (
-            <Button onClick={() => setShowRecordPayment(true)} variant="outline" className="border-slate-600 text-slate-300">
-              <Upload className="w-4 h-4 mr-2" />
-              Record Payment
-            </Button>
+            <>
+              <Button onClick={() => openLedgerPayment("CASH")} variant="outline" className="border-slate-600 text-slate-600">
+                <DollarSign className="w-4 h-4 mr-2" />
+                Record Payment (Cash)
+              </Button>
+              <Button onClick={() => openLedgerPayment("REMOTE")} variant="outline" className="border-blue-600 text-blue-600">
+                <Upload className="w-4 h-4 mr-2" />
+                Verify Payment (Remote)
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -1916,6 +1932,18 @@ export default function FeesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog >
+      {/* Ledger Payment Modal */}
+      <LedgerPaymentModal
+        open={showLedgerModal}
+        onOpenChange={setShowLedgerModal}
+        accessToken={accessToken}
+        mode={ledgerModalMode}
+        students={students}
+        onSuccess={() => {
+          loadData();
+          if (canViewAnalytics) loadAnalytics();
+        }}
+      />
     </div >
   );
 }

@@ -38,7 +38,9 @@ import {
     ShieldAlert,
     Download,
     Upload,
-    ChevronRight // Optional icon for interaction hint
+
+    ChevronRight, // Optional icon for interaction hint
+    BookOpen
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UserProfileDrawer } from "@/components/UserProfileDrawer";
@@ -51,6 +53,8 @@ import {
     DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import AssignTeachingDrawer from "@/components/academics/AssignTeachingDrawer";
+import AssignStudentDrawer from "@/components/students/AssignStudentDrawer";
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -65,6 +69,19 @@ export default function UserManagement() {
 
     // Drawer State
     const [selectedProfileUser, setSelectedProfileUser] = useState(null);
+
+    // Assign Teaching Drawer State
+    const [assignTeachingDrawer, setAssignTeachingDrawer] = useState({
+        open: false,
+        teacher: null
+    });
+
+    const [assignStudentDrawer, setAssignStudentDrawer] = useState({
+        open: false,
+        parent: null
+    });
+
+    const [academicConfig, setAcademicConfig] = useState(null); // { activeYear, grades, sections }
 
     // Create User Modal
     const [createModal, setCreateModal] = useState(false);
@@ -179,11 +196,36 @@ export default function UserManagement() {
 
     useEffect(() => {
         loadUsers();
-        // Load grades for assignment
-        axios.get(`${API_BASE}/api/academics/grades-with-sections`, { headers })
-            .then(res => setGradesWithSections(res.data))
-            .catch(err => console.error("Failed to load grades", err));
     }, [loadUsers]);
+
+    // Fetch Academic Config (Run once on mount/auth)
+    useEffect(() => {
+        if (!accessToken) return;
+
+        const fetchMetadata = async () => {
+            try {
+                // Parallel fetch
+                const [gradesRes, yearRes, sectionsRes] = await Promise.all([
+                    axios.get(`${API_BASE}/api/academics/grades-with-sections`, { headers }),
+                    axios.get(`${API_BASE}/api/academics/academic-years`, { headers }),
+                    axios.get(`${API_BASE}/api/academics/sections`, { headers })
+                ]);
+
+                setGradesWithSections(gradesRes.data);
+
+                const activeYear = yearRes.data.find(y => y.is_active);
+                setAcademicConfig({
+                    activeYear,
+                    grades: gradesRes.data,
+                    sections: sectionsRes.data
+                });
+            } catch (e) {
+                console.error("Failed to load academic metadata", e);
+            }
+        };
+
+        fetchMetadata();
+    }, [accessToken]);
 
     const handleCreateUser = async (e) => {
         e.preventDefault();
@@ -256,7 +298,7 @@ export default function UserManagement() {
     const getRoleBadge = (role) => {
         const styles = {
             super_admin: "bg-purple-600 text-white",
-            principal: "bg-nepsis-primary text-white",
+            principal: "bg-sissphere-primary text-white",
             teacher: "bg-green-600 text-white",
             student: "bg-yellow-600 text-white",
             parent: "bg-orange-600 text-white",
@@ -496,7 +538,7 @@ export default function UserManagement() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <Users className="h-6 w-6 text-nepsis-primary" />
+                        <Users className="h-6 w-6 text-sissphere-primary" />
                         User Management
                     </h1>
                     <p className="text-slate-500">Manage accounts, roles, and access for your school.</p>
@@ -604,12 +646,12 @@ export default function UserManagement() {
                             processing: false
                         })}
                         variant="outline"
-                        className="border-nepsis-primary text-nepsis-primary hover:bg-nepsis-primary/10"
+                        className="border-sissphere-primary text-sissphere-primary hover:bg-sissphere-primary/10"
                     >
                         <Shield className="h-4 w-4 mr-2" />
                         Manage Roles
                     </Button>
-                    <Button onClick={() => setCreateModal(true)} className="bg-nepsis-primary hover:bg-nepsis-primary/90 text-white">
+                    <Button onClick={() => setCreateModal(true)} className="bg-sissphere-primary hover:bg-sissphere-primary/90 text-white">
                         <Plus className="h-4 w-4 mr-2" />
                         Add User
                     </Button>
@@ -625,7 +667,7 @@ export default function UserManagement() {
                                 placeholder="Search users..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="pl-9 bg-white border-slate-300 focus:border-nepsis-primary text-slate-900 placeholder:text-slate-400"
+                                className="pl-9 bg-white border-slate-300 focus:border-sissphere-primary text-slate-900 placeholder:text-slate-400"
                             />
                         </div>
                         <div className="flex gap-2">
@@ -735,20 +777,27 @@ export default function UserManagement() {
                                                         <DropdownMenuItem disabled={processing === u.id} className="text-slate-700 focus:bg-slate-100">
                                                             <KeyRound className="mr-2 h-4 w-4" /> Reset Password
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem
-                                                            onClick={() => setAddRoleModal({
-                                                                open: true,
-                                                                userId: String(u.id),
-                                                                userName: u.full_name,
-                                                                currentRoles: u.roles || [u.role],
-                                                                selectedRoles: u.roles || [u.role],
-                                                                processing: false
-                                                            })}
-                                                            disabled={processing === u.id || user.id === u.id}
-                                                            className="text-blue-600 focus:text-blue-700 focus:bg-blue-50"
-                                                        >
-                                                            <Shield className="mr-2 h-4 w-4" /> Manage Roles
-                                                        </DropdownMenuItem>
+
+
+                                                        {/* Assign Teaching for Teachers */}
+                                                        {((u.roles || [u.role]).includes("teacher")) && (
+                                                            <DropdownMenuItem
+                                                                onClick={() => setAssignTeachingDrawer({ open: true, teacher: u })}
+                                                                className="text-blue-600 focus:text-blue-700 focus:bg-blue-50"
+                                                            >
+                                                                <BookOpen className="mr-2 h-4 w-4" /> Assign Teaching
+                                                            </DropdownMenuItem>
+                                                        )}
+
+                                                        {/* Assign Students for Parents */}
+                                                        {(u.roles || [u.role]).includes("parent") && (
+                                                            <DropdownMenuItem
+                                                                onClick={() => setAssignStudentDrawer({ open: true, parent: u })}
+                                                                className="text-blue-600 focus:text-blue-700 focus:bg-blue-50"
+                                                            >
+                                                                <Users className="mr-2 h-4 w-4" /> Assign Students
+                                                            </DropdownMenuItem>
+                                                        )}
 
                                                         <DropdownMenuSeparator className="bg-slate-100" />
 
@@ -776,6 +825,15 @@ export default function UserManagement() {
                 userId={selectedProfileUser?.id}
                 open={!!selectedProfileUser}
                 onOpenChange={(open) => !open && setSelectedProfileUser(null)}
+            />
+
+            {/* Assign Teaching Drawer */}
+            <AssignTeachingDrawer
+                isOpen={assignTeachingDrawer.open}
+                onClose={() => setAssignTeachingDrawer({ open: false, teacher: null })}
+                teacher={assignTeachingDrawer.teacher}
+                config={academicConfig}
+                token={accessToken}
             />
 
             {/* Create User Modal */}
@@ -846,7 +904,7 @@ export default function UserManagement() {
                                                     setNewUser({ ...newUser, roles: currentRoles.filter(r => r !== role) });
                                                 }
                                             }}
-                                            className="w-4 h-4 accent-nepsis-primary"
+                                            className="w-4 h-4 accent-sissphere-primary"
                                         />
                                         <span className="capitalize">{role.replace('_', ' ')}</span>
                                     </label>
@@ -925,7 +983,7 @@ export default function UserManagement() {
 
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => setCreateModal(false)}>Cancel</Button>
-                            <Button type="submit" disabled={creating} className="bg-nepsis-primary hover:bg-nepsis-primary/90">
+                            <Button type="submit" disabled={creating} className="bg-sissphere-primary hover:bg-sissphere-primary/90">
                                 {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Create User
                             </Button>
@@ -994,7 +1052,7 @@ export default function UserManagement() {
                     </div>
                     <DialogFooter>
                         <Button type="button" variant="ghost" onClick={() => setEnrollmentModal(prev => ({ ...prev, open: false }))}>Cancel</Button>
-                        <Button onClick={handleEnrollmentSubmit} disabled={enrollmentModal.processing} className="bg-nepsis-primary hover:bg-nepsis-primary/90">
+                        <Button onClick={handleEnrollmentSubmit} disabled={enrollmentModal.processing} className="bg-sissphere-primary hover:bg-sissphere-primary/90">
                             {enrollmentModal.processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Update Enrollment
                         </Button>
@@ -1006,7 +1064,7 @@ export default function UserManagement() {
             <Dialog open={handoverModal.open} onOpenChange={(open) => setHandoverModal(prev => ({ ...prev, open }))}>
                 <DialogContent className="bg-slate-900 border-slate-700 text-slate-100 max-w-lg">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-xl text-nepsis-primary">
+                        <DialogTitle className="flex items-center gap-2 text-xl text-sissphere-primary">
                             <AlertTriangle className="text-yellow-500" />
                             {handoverModal.action === "promote" ? "Promote to Principal" : "Replace Principal"}
                         </DialogTitle>
@@ -1070,7 +1128,7 @@ export default function UserManagement() {
                         <Button
                             onClick={handleHandoverSubmit}
                             disabled={handoverModal.confirmText !== "CONFIRM" || handoverModal.processing}
-                            className="bg-nepsis-primary hover:bg-nepsis-primary/90"
+                            className="bg-sissphere-primary hover:bg-sissphere-primary/90"
                         >
                             {handoverModal.processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Confirm Change
@@ -1084,7 +1142,7 @@ export default function UserManagement() {
                 <DialogContent className="bg-white border-slate-200 text-slate-900 max-w-lg">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-xl">
-                            <Shield className="text-nepsis-primary" />
+                            <Shield className="text-sissphere-primary" />
                             {roleChangeModal.step === 1 && "Role Management"}
                             {roleChangeModal.step === 2 && "Select Action"}
                             {roleChangeModal.step === 3 && "Confirm Action"}
@@ -1108,7 +1166,7 @@ export default function UserManagement() {
                                 <Button variant="ghost" onClick={resetRoleChangeModal}>Cancel</Button>
                                 <Button
                                     onClick={() => setRoleChangeModal(prev => ({ ...prev, step: 2 }))}
-                                    className="bg-nepsis-primary hover:bg-nepsis-primary/90 text-white"
+                                    className="bg-sissphere-primary hover:bg-sissphere-primary/90 text-white"
                                 >
                                     Yes, Proceed
                                 </Button>
@@ -1187,7 +1245,7 @@ export default function UserManagement() {
                                 <Button
                                     onClick={() => setRoleChangeModal(prev => ({ ...prev, step: 3 }))}
                                     disabled={!roleChangeModal.selectedUserId || (roleChangeModal.actionType === "change_role" && !roleChangeModal.newRole)}
-                                    className="bg-nepsis-primary hover:bg-nepsis-primary/90 text-white"
+                                    className="bg-sissphere-primary hover:bg-sissphere-primary/90 text-white"
                                 >
                                     Next
                                 </Button>
@@ -1236,7 +1294,7 @@ export default function UserManagement() {
                                 <Button
                                     onClick={handleRoleChangeSubmit}
                                     disabled={!isReasonValid || !isConfirmValid || roleChangeModal.processing}
-                                    className={roleChangeModal.actionType === "terminate" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-nepsis-primary hover:bg-nepsis-primary/90 text-white"}
+                                    className={roleChangeModal.actionType === "terminate" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-sissphere-primary hover:bg-sissphere-primary/90 text-white"}
                                 >
                                     {roleChangeModal.processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                     {roleChangeModal.actionType === "terminate" ? "Terminate User" : "Apply Role Change"}
@@ -1296,6 +1354,29 @@ export default function UserManagement() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Drawers */}
+            <UserProfileDrawer
+                open={!!selectedProfileUser}
+                onOpenChange={(open) => !open && setSelectedProfileUser(null)}
+                user={selectedProfileUser}
+                currentUserId={user?.id}
+            />
+
+            <AssignTeachingDrawer
+                isOpen={assignTeachingDrawer.open}
+                onClose={() => setAssignTeachingDrawer({ open: false, teacher: null })}
+                teacher={assignTeachingDrawer.teacher}
+                config={academicConfig}
+                token={accessToken}
+            />
+
+            <AssignStudentDrawer
+                isOpen={assignStudentDrawer.open}
+                onClose={() => setAssignStudentDrawer({ open: false, parent: null })}
+                parent={assignStudentDrawer.parent}
+                token={accessToken}
+            />
         </div>
     );
 }

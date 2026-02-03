@@ -90,7 +90,7 @@ const GuardScanner = () => {
     return (
         <div className="h-screen w-full bg-black flex flex-col overflow-hidden">
             {/* Top Half: Camera */}
-            <div className={`${scanResult ? 'h-1/3' : 'h-1/2'} w-full relative bg-gray-900 border-b-4 border-nepsis-primary transition-all duration-300`}>
+            <div className={`${scanResult ? 'h-1/3' : 'h-1/2'} w-full relative bg-gray-900 border-b-4 border-sissphere-primary transition-all duration-300`}>
                 <QrReader
                     onResult={handleScan}
                     constraints={{ facingMode: 'environment' }}

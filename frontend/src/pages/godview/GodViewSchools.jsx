@@ -29,11 +29,11 @@ const GodViewSchools = () => {
     const [tierFilter, setTierFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
 
-    const fetchData = async () => {
+    const fetchData = async (search = '') => {
         try {
             setLoading(true);
             const [schoolsRes, statsRes] = await Promise.all([
-                api.get('/superadmin/schools'),
+                api.get('/superadmin/schools', { params: { q: search } }),
                 api.get('/superadmin/stats')
             ]);
             setSchools(schoolsRes.data);
@@ -46,17 +46,19 @@ const GodViewSchools = () => {
     };
 
     useEffect(() => {
-        fetchData();
-    }, []);
+        const timer = setTimeout(() => {
+            fetchData(searchTerm);
+        }, 500); // Debounce search
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
     const filteredSchools = schools.filter(school => {
-        const matchesSearch = school.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            school.code?.toLowerCase().includes(searchTerm.toLowerCase());
+        // Backend handles search now
         const matchesTier = tierFilter === 'all' || school.subscription_tier === tierFilter;
         const matchesStatus = statusFilter === 'all' ||
             (statusFilter === 'active' && school.is_active) ||
             (statusFilter === 'inactive' && !school.is_active);
-        return matchesSearch && matchesTier && matchesStatus;
+        return matchesTier && matchesStatus;
     });
 
     const tierDistribution = stats?.tier_distribution ?

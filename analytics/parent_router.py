@@ -32,8 +32,8 @@ def get_parent_dashboard_summary(
 ):
     # Get Linked Students
     links = db.query(ParentStudentLink).filter(
-        ParentStudentLink.parent_id == user.id,
-        ParentStudentLink.school_id == user.school_id
+        ParentStudentLink.parent_id == str(user.id),
+        ParentStudentLink.school_id == str(user.school_id)
     ).all()
 
     student_ids = [link.student_id for link in links]

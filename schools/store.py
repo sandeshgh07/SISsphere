@@ -5,6 +5,7 @@ from database import SessionLocal
 from .schemas import SchoolCreate, SchoolOut, SchoolWithPrincipalCreate, UserCreateRequest
 from .models import School, User, UserRole
 from passlib.context import CryptContext
+from uuid import UUID
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -43,7 +44,7 @@ class SchoolStore:
             first_name=first_name,
             last_name=last_name,
             role=primary_role,  # Primary role stored in user.role
-            school_id=school_id,
+            school_id=UUID(str(school_id)) if school_id else None,
             phone=data.phone,
             is_active=True
         )
@@ -105,6 +106,7 @@ class SchoolStore:
         import json
         
         audit_log = AuditLog(
+            school_id=str(school_id),
             actor_id=get_actor_id(),
             action_type="INSERT",
             table_name="users",
@@ -153,7 +155,7 @@ class SchoolStore:
         return SchoolOut.model_validate(new_school)
 
     def update_school(self, db: Session, school_id: str, name: str = None, country: str = None, type: str = None, logo_url: str = None) -> SchoolOut:
-        school = db.query(School).filter(School.id == school_id).first()
+        school = db.query(School).filter(School.id == UUID(school_id)).first()
         if not school:
             raise HTTPException(status_code=404, detail="School not found")
 
@@ -175,7 +177,7 @@ class SchoolStore:
         return SchoolOut.model_validate(school)
 
     def update_school_logo(self, db: Session, school_id: str, logo_url: str) -> SchoolOut:
-        school = db.query(School).filter(School.id == school_id).first()
+        school = db.query(School).filter(School.id == UUID(school_id)).first()
         if not school:
             raise HTTPException(status_code=404, detail="School not found")
 
@@ -187,6 +189,10 @@ class SchoolStore:
     def create_school_with_principal(self, data: SchoolWithPrincipalCreate, db: Session, role: str = "principal") -> SchoolOut:
         code = data.school.code.strip().lower()
 
+        existing_school = db.query(School).filter(School.code == code).first()
+        if existing_school:
+            raise HTTPException(status_code=409, detail="School code already exists")
+
         # Check if user email already exists (globally or per school? Usually globally unique emails for login)
         existing_user = db.query(User).filter(User.email == data.principal.email).first()
         if existing_user:
@@ -195,7 +201,7 @@ class SchoolStore:
         # Start transaction is implicit in session
         try:
             # Determine logo URL - use provided or default placeholder
-            logo_url = data.school.logo_url if hasattr(data.school, 'logo_url') and data.school.logo_url else "/static/logos/classa_default.png"
+            logo_url = data.school.logo_url if hasattr(data.school, 'logo_url') and data.school.logo_url else "/static/logos/sissphere_default.png"
             
             # Get contact_request_id if provided (for SaaS lead tracking)
             contact_request_id = getattr(data.school, 'contact_request_id', None)
@@ -239,12 +245,21 @@ class SchoolStore:
             db.rollback()
             raise e
 
-    def list_schools(self, db: Session, is_active: bool | None = None, school_id: str | None = None) -> list[SchoolOut]:
+    def list_schools(self, db: Session, is_active: bool | None = None, school_id: str | None = None, q: str | None = None) -> list[SchoolOut]:
         query = db.query(School)
         if is_active is not None:
             query = query.filter(School.is_active == is_active)
         if school_id:
-            query = query.filter(School.id == school_id)
+            query = query.filter(School.id == UUID(school_id))
+        
+        if q:
+            from sqlalchemy import or_
+            search = f"%{q}%"
+            query = query.filter(or_(
+                School.name.ilike(search),
+                School.code.ilike(search)
+            ))
+            
         schools = query.all()
         return [SchoolOut.model_validate(s) for s in schools]
 

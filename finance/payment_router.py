@@ -347,7 +347,7 @@ async def record_payment(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     tenant: TenantAccess = Depends(TenantAccess),
-    current_user = Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT))
+    current_user = Depends(require_roles(Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL, Roles.PARENT))
 ):
     """
     Hybrid Payment Entry:
@@ -363,21 +363,25 @@ async def record_payment(
 
     source_enum = finance_models.EntrySource(entry_source)
 
+    if source_enum == finance_models.EntrySource.OFFICE_CASH:
+        if current_user.role not in [Roles.SUPER_ADMIN, Roles.ACCOUNTANT, Roles.PRINCIPAL, Roles.SCHOOL_ADMIN]:
+             raise HTTPException(status_code=403, detail="Only staff can record cash payments")
+
     # 1. Validation Logic
     receipt_url = None
     verifier_id = None
-    initial_status = finance_models.PaymentStatus.SUCCEEDED
+    initial_status = finance_models.PaymentStatus.CONFIRMED
 
     if source_enum == finance_models.EntrySource.REMOTE:
         if not file:
             raise HTTPException(status_code=400, detail="Receipt attachment is REQUIRED for REMOTE payments")
         # REMOTE payments start as PENDING verification
-        initial_status = finance_models.PaymentStatus.PENDING
+        initial_status = finance_models.PaymentStatus.PENDING_VERIFICATION
     elif source_enum == finance_models.EntrySource.OFFICE_CASH:
         # Attachment optional
         verifier_id = current_user.id
         # CASH payments are verified by default (since accountant enters them)
-        initial_status = finance_models.PaymentStatus.SUCCEEDED
+        initial_status = finance_models.PaymentStatus.CONFIRMED
 
     # 2. File Upload
     if file:
@@ -408,10 +412,11 @@ async def record_payment(
     fee = None
 
     if invoice_id:
-        invoice = db.query(finance_models.Invoice).with_for_update().filter(
+        invoice = db.query(finance_models.Invoice).filter(
             finance_models.Invoice.id == invoice_id,
             finance_models.Invoice.school_id == tenant.school_id
         ).first()
+
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
         if invoice.status == finance_models.InvoiceStatus.CANCELLED:
@@ -430,7 +435,7 @@ async def record_payment(
         # Calculate remaining for Fee
         paid_sum = db.query(func.sum(finance_models.Payment.amount)).filter(
             finance_models.Payment.fee_id == fee_id,
-            finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
+            finance_models.Payment.status == finance_models.PaymentStatus.CONFIRMED
         ).scalar() or 0.0
         remaining = fee.amount - paid_sum
 
@@ -461,8 +466,8 @@ async def record_payment(
     )
     db.add(payment)
 
-    # 6. Update Status (Only if SUCCEEDED immediately)
-    if initial_status == finance_models.PaymentStatus.SUCCEEDED:
+    # 6. Update Status (Only if CONFIRMED immediately)
+    if initial_status == finance_models.PaymentStatus.CONFIRMED:
         if invoice:
             invoice.amount_paid += amount
             if invoice.amount_paid >= invoice.total_amount - 0.01:
@@ -503,11 +508,11 @@ def verify_payment(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    if payment.status != finance_models.PaymentStatus.PENDING:
+    if payment.status not in [finance_models.PaymentStatus.PENDING, finance_models.PaymentStatus.PENDING_VERIFICATION]:
         raise HTTPException(status_code=400, detail="Payment is not pending verification")
 
     if request.status == "verified":
-        payment.status = finance_models.PaymentStatus.SUCCEEDED
+        payment.status = finance_models.PaymentStatus.CONFIRMED
         payment.verifier_id = current_user.id
         if request.notes:
             payment.notes = (payment.notes or "") + f" | Verified: {request.notes}"
@@ -531,9 +536,9 @@ def verify_payment(
             if fee:
                 paid_sum = db.query(func.sum(finance_models.Payment.amount)).filter(
                     finance_models.Payment.fee_id == fee.id,
-                    finance_models.Payment.status == finance_models.PaymentStatus.SUCCEEDED
+                    finance_models.Payment.status == finance_models.PaymentStatus.CONFIRMED
                 ).scalar() or 0.0
-                # Add current payment (now SUCCEEDED)
+                # Add current payment (now CONFIRMED)
                 final_sum = paid_sum + payment.amount
 
                 if final_sum >= fee.amount - 0.01:

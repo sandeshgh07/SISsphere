@@ -1,8 +1,11 @@
-# Classa Enterprise - Production Hardening Guide
+# SISsphere - Enterprise School Management System
+
+## Overview
+SISsphere is a comprehensive, multi-tenant Student Information System designed for schools in Nepal.
 
 ## Architecture Overview
 
-Classa Enterprise operates as a hybrid platform with two distinct access layers:
+SISsphere operates as a hybrid platform with two distinct access layers:
 
 1.  **Public Portal (Landing Page & Admissions)**
     *   **Technology:** React (Vite) + Framer Motion (Frontend), FastAPI (Backend).

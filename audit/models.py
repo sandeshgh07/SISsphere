@@ -18,6 +18,6 @@ class AuditLog(Base):
     before_state = Column(Text, nullable=True) # JSON string
     after_state = Column(Text, nullable=True) # JSON string
     trace_id = Column(String, nullable=True, index=True)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     reason = Column(String, nullable=True) # Reason for the action, e.g. for manual overrides
     hidden_for_user_ids = Column(Text, nullable=True) # JSON list of user IDs who should not see this log

@@ -129,7 +129,10 @@ def get_principal_dashboard(
     previous_period_start = period_start - timedelta(days=days)
     
     # Get school info
-    school = db.query(School).filter(School.id == tenant.school_id).first()
+    # Get school info
+    from uuid import UUID
+    # tenant.school_id is a string, but School.id is a Uuid type which expects a UUID object
+    school = db.query(School).filter(School.id == UUID(tenant.school_id)).first()
     school_name = school.name if school else "School"
     school_logo = school.logo_url if school else None
     
@@ -336,8 +339,9 @@ def get_principal_dashboard(
             ))
     
     # 3. Staff Alerts (check for teachers with no recent activity)
+    from uuid import UUID
     teachers = db.query(User).filter(
-        User.school_id == tenant.school_id,
+        User.school_id == UUID(str(tenant.school_id)),
         User.role == "teacher",
         User.is_active == True
     ).all()

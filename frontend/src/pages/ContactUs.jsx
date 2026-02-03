@@ -9,8 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { toast } from '@/components/ui/sonner';
 import axios from 'axios';
 
-const CLASSA_PRIMARY = '#003333';
-const CLASSA_ACCENT = '#5C2438';
+const SISSPHERE_PRIMARY = '#003333';
+const SISSPHERE_ACCENT = '#5C2438';
 
 function ContactUs() {
     const navigate = useNavigate();
@@ -51,7 +51,7 @@ function ContactUs() {
 
     if (submitted) {
         return (
-            <div className="min-h-screen flex items-center justify-center p-4" style={{ background: `linear-gradient(135deg, ${CLASSA_PRIMARY} 0%, #001a1a 100%)` }}>
+            <div className="min-h-screen flex items-center justify-center p-4" style={{ background: `linear-gradient(135deg, ${SISSPHERE_PRIMARY} 0%, #001a1a 100%)` }}>
                 <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -77,7 +77,7 @@ function ContactUs() {
     }
 
     return (
-        <div className="min-h-screen" style={{ background: `linear-gradient(135deg, ${CLASSA_PRIMARY} 0%, #001a1a 100%)` }}>
+        <div className="min-h-screen" style={{ background: `linear-gradient(135deg, ${SISSPHERE_PRIMARY} 0%, #001a1a 100%)` }}>
             {/* Header */}
             <header className="p-6">
                 <div className="max-w-6xl mx-auto flex items-center justify-between">
@@ -90,7 +90,7 @@ function ContactUs() {
                     </button>
                     <div className="flex items-center gap-2">
                         <Building2 className="w-8 h-8 text-white" />
-                        <span className="text-xl font-bold text-white">Classa Enterprise</span>
+                        <span className="text-xl font-bold text-white">SISsphere</span>
                     </div>
                 </div>
             </header>
@@ -115,7 +115,7 @@ function ContactUs() {
 
                         <div className="space-y-6">
                             <div className="flex items-center gap-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm">
-                                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: CLASSA_ACCENT }}>
+                                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: SISSPHERE_ACCENT }}>
                                     <Mail className="w-6 h-6 text-white" />
                                 </div>
                                 <div>
@@ -127,7 +127,7 @@ function ContactUs() {
                             </div>
 
                             <div className="flex items-center gap-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm">
-                                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: CLASSA_ACCENT }}>
+                                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: SISSPHERE_ACCENT }}>
                                     <Phone className="w-6 h-6 text-white" />
                                 </div>
                                 <div>
@@ -140,22 +140,22 @@ function ContactUs() {
                         </div>
 
                         <div className="p-6 rounded-xl bg-white/5 border border-white/10">
-                            <h3 className="text-lg font-semibold text-white mb-3">Why Choose Classa?</h3>
+                            <h3 className="text-lg font-semibold text-white mb-3">Why Choose SISsphere?</h3>
                             <ul className="space-y-2 text-gray-300">
                                 <li className="flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLASSA_ACCENT }} />
+                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SISSPHERE_ACCENT }} />
                                     End-to-end school management
                                 </li>
                                 <li className="flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLASSA_ACCENT }} />
+                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SISSPHERE_ACCENT }} />
                                     AI-powered insights
                                 </li>
                                 <li className="flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLASSA_ACCENT }} />
+                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SISSPHERE_ACCENT }} />
                                     24/7 priority support
                                 </li>
                                 <li className="flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLASSA_ACCENT }} />
+                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SISSPHERE_ACCENT }} />
                                     Custom training included
                                 </li>
                             </ul>
@@ -170,7 +170,7 @@ function ContactUs() {
                     >
                         <Card className="bg-white/95 backdrop-blur border-0 shadow-2xl">
                             <CardHeader>
-                                <CardTitle className="text-2xl" style={{ color: CLASSA_PRIMARY }}>
+                                <CardTitle className="text-2xl" style={{ color: SISSPHERE_PRIMARY }}>
                                     Send Us a Message
                                 </CardTitle>
                                 <CardDescription>
@@ -244,7 +244,7 @@ function ContactUs() {
                                             disabled={submitting}
                                             rows={5}
                                             className="w-full px-3 py-2 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-offset-2"
-                                            style={{ '--tw-ring-color': CLASSA_PRIMARY }}
+                                            style={{ '--tw-ring-color': SISSPHERE_PRIMARY }}
                                         />
                                     </div>
 
@@ -252,7 +252,7 @@ function ContactUs() {
                                         type="submit"
                                         disabled={submitting}
                                         className="w-full text-white"
-                                        style={{ backgroundColor: CLASSA_ACCENT }}
+                                        style={{ backgroundColor: SISSPHERE_ACCENT }}
                                     >
                                         {submitting ? (
                                             <>
@@ -275,7 +275,7 @@ function ContactUs() {
 
             {/* Footer */}
             <footer className="py-8 text-center text-gray-400 text-sm">
-                © 2026 Classa Enterprise. All rights reserved.
+                © 2026 SISsphere. All rights reserved.
             </footer>
         </div>
     );

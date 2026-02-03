@@ -420,7 +420,7 @@ class FinanceAnalyticsService:
                     "student_name": f"{student.first_name} {student.last_name}",
                     "grade": student.grade.name if student.grade else "N/A",
                     "amount": float(r.total_debt),
-                    "identifier": student.student_id or student.email # Useful for display
+                    "identifier": student.roll_number or student.email # Useful for display
                 })
         
         return data

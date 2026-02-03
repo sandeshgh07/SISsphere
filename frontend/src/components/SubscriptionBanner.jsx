@@ -43,18 +43,18 @@ const SubscriptionBanner = () => {
                         className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border-t-8 border-yellow-500"
                     >
                         <div className="flex justify-between items-start mb-4">
-                            <h2 className="text-2xl font-bold text-nepsis-primary">Action Required</h2>
+                            <h2 className="text-2xl font-bold text-sissphere-primary">Action Required</h2>
                             <button onClick={() => setShowWarningModal(false)}><X className="w-6 h-6 text-gray-400 hover:text-gray-600" /></button>
                         </div>
                         <p className="text-lg text-gray-700 mb-6">
-                            Your school's subscription will expire in <span className="font-bold text-nepsis-alert">{diffDays} days</span>.
+                            Your school's subscription will expire in <span className="font-bold text-sissphere-alert">{diffDays} days</span>.
                         </p>
                         <div className="bg-yellow-50 p-4 rounded-lg mb-6 border border-yellow-100">
                              Please renew your plan to avoid service interruption.
                         </div>
                          <button
                             onClick={() => setShowWarningModal(false)}
-                            className="w-full py-3 bg-nepsis-primary text-white rounded-lg font-bold hover:bg-opacity-90"
+                            className="w-full py-3 bg-sissphere-primary text-white rounded-lg font-bold hover:bg-opacity-90"
                         >
                             Acknowledge
                         </button>
@@ -71,7 +71,7 @@ const SubscriptionBanner = () => {
   if (graceRemaining < 0) return null;
 
   const isPhase3 = daysPast >= 31;
-  const bannerClass = isPhase3 ? "bg-nepsis-alert text-white" : "bg-orange-500 text-white";
+  const bannerClass = isPhase3 ? "bg-sissphere-alert text-white" : "bg-orange-500 text-white";
 
   return (
     <div className={`${bannerClass} px-4 py-3 text-center font-medium shadow-md flex items-center justify-center gap-2 z-50 relative animate-in slide-in-from-top-full duration-300`}>

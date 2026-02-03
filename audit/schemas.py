@@ -14,9 +14,33 @@ class AuditLogResponse(BaseModel):
     trace_id: Optional[str]
     timestamp: datetime
     reason: Optional[str]
+    actor_name: Optional[str] = None
+    actor_email: Optional[str] = None
+    actor_role: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def validate_timestamp(cls, v: Any) -> datetime:
+        from datetime import timezone
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+    
+    # Pydantic v2 validator
+    from pydantic import field_validator
+    @field_validator("timestamp", mode="before")
+    def force_utc(cls, v):
+        from datetime import datetime, timezone
+        if isinstance(v, str):
+            # Let default parser handle strings first, but if needed we can parse manually
+            # usually Pydantic handles str -> datetime
+            return v 
+        if isinstance(v, datetime):
+            if v.tzinfo is None:
+                return v.replace(tzinfo=timezone.utc)
+        return v
 
 class PaginatedAuditLogResponse(BaseModel):
     total: int

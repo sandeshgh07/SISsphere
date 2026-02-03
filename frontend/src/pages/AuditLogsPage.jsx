@@ -187,7 +187,7 @@ export default function AuditLogsPage() {
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <FileText className="h-7 w-7 text-nepsis-primary" />
+                        <FileText className="h-7 w-7 text-sissphere-primary" />
                         Audit Logs
                     </h1>
                     <p className="text-slate-500 text-sm mt-1">Track comprehensive system activity and security events.</p>

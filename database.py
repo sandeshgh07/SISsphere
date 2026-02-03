@@ -24,10 +24,10 @@ def register_listeners():
     import academics.models
     import finance.models
     import audit.models
+    import communication.models
 
     # Attempt to import others that might exist in the codebase
     try:
-        import communication.models
         import attendance.models
     except ImportError:
         pass

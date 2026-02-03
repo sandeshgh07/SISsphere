@@ -15,10 +15,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Sheet,
-  SheetContent,
-} from "@/components/ui/sheet";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -26,26 +22,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Calendar, Clock, AlertTriangle, AlertCircle, Info } from "lucide-react";
-import { useLocation } from "react-router-dom";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Plus, Search, Calendar, Clock, AlertTriangle, AlertCircle, Info, CheckCircle,
+  ChevronLeft, Shield, User, X, Check, Bell
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import ResizableSplitPane from "@/components/layout/ResizableSplitPane";
 
 export default function NoticesPage() {
   const { accessToken, user, activeRole } = useAuth();
   const { toast } = useToast();
 
+  // Data
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // UI State
   const [showCreateNotice, setShowCreateNotice] = useState(false);
-
-  // Sheet for viewing notice details
   const [selectedNotice, setSelectedNotice] = useState(null);
-
-  // URL Deep Linking
-  const location = useLocation();
-  const searchParams = new URLSearchParams(location.search);
-  const noticeIdParam = searchParams.get('noticeId');
+  const [isMobileDetailsOpen, setIsMobileDetailsOpen] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,41 +50,44 @@ export default function NoticesPage() {
   const [newNotice, setNewNotice] = useState({
     title: "",
     content: "",
-    priority: "NORMAL", // CRITICAL, IMPORTANT, NORMAL
+    priority: "NORMAL",
     scheduled_at: "",
     expires_at: "",
     require_ack: false
   });
 
   // Targeting State
-  const [targetRoles, setTargetRoles] = useState([]); // ['student', 'teacher', etc]
-  const [targetingModes, setTargetingModes] = useState({}); // { student: 'ALL' | 'SPECIFIC' }
-  const [selectedGrades, setSelectedGrades] = useState([]); // [gradeId1, gradeId2]
-  const [selectedSections, setSelectedSections] = useState([]); // [sectionId1, sectionId2]
-  const [gradeAllSections, setGradeAllSections] = useState({}); // { gradeId: true } (toggle for 'All sections')
-
-  // Grades and sections for targeting
+  const [targetRoles, setTargetRoles] = useState([]);
+  const [targetingModes, setTargetingModes] = useState({});
+  const [selectedGrades, setSelectedGrades] = useState([]);
+  const [selectedSections, setSelectedSections] = useState([]);
+  const [gradeAllSections, setGradeAllSections] = useState({});
   const [structure, setStructure] = useState([]);
 
   const canCreateNotice = ["principal", "super_admin", "school_admin"].includes(activeRole);
 
+  // --- Effects ---
   useEffect(() => {
-    if (!accessToken) return;
-    loadNotices();
-    loadGradesAndSections();
+    if (accessToken) {
+      loadNotices();
+      loadGradesAndSections();
+    }
   }, [accessToken]);
 
+  // Deep linking logic (simplified for single page app with state)
   useEffect(() => {
-    if (noticeIdParam && notices.length > 0) {
-      const found = notices.find(n => n.id === noticeIdParam);
-      if (found) setSelectedNotice(found);
+    if (selectedNotice) {
+      setIsMobileDetailsOpen(true);
+    } else {
+      setIsMobileDetailsOpen(false);
     }
-  }, [noticeIdParam, notices]);
+  }, [selectedNotice]);
 
+  // --- API ---
   const loadNotices = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/notices');
+      const res = await api.get('/communication/notices');
       setNotices(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
       console.error("Error loading notices:", e);
@@ -101,11 +99,8 @@ export default function NoticesPage() {
   const loadGradesAndSections = async () => {
     try {
       const res = await api.get('/academics/structure');
-      const struct = Array.isArray(res.data) ? res.data : [];
-      setStructure(struct);
-    } catch (e) {
-      console.error("Error loading structure:", e);
-    }
+      setStructure(Array.isArray(res.data) ? res.data : []);
+    } catch (e) { console.error(e); }
   };
 
   const handleCreateNotice = async () => {
@@ -113,16 +108,14 @@ export default function NoticesPage() {
       toast({ title: "Error", description: "Title and content are required", variant: "destructive" });
       return;
     }
-
     if (targetRoles.length === 0) {
       toast({ title: "Error", description: "Select at least one audience group", variant: "destructive" });
       return;
     }
 
-    // Validation for Student/Parent Specific Mode
+    // Validation for student/parent specific
     let finalTargetGradeIds = [];
     let finalTargetSectionIds = [];
-
     const isStudentSpecific = targetRoles.includes("student") && targetingModes["student"] === "SPECIFIC";
     const isParentSpecific = targetRoles.includes("parent") && targetingModes["parent"] === "SPECIFIC";
 
@@ -131,36 +124,22 @@ export default function NoticesPage() {
         toast({ title: "Error", description: "Please select at least one grade for specific targeting.", variant: "destructive" });
         return;
       }
-
-      // Process logic: 
-      // For each selected grade:
-      // If All Sections -> Add Grade ID to target_grade_ids (Implies whole grade)
-      // If Specific Sections -> Add Section IDs to target_section_ids (Do NOT add grade ID)
-
-      const gradesWithAnySelection = [];
-
       for (const gradeId of selectedGrades) {
         if (gradeAllSections[gradeId]) {
           finalTargetGradeIds.push(gradeId);
-          gradesWithAnySelection.push(gradeId);
         } else {
-          // Must have at least one section selected for this grade
-          // Filter selectedSections that belong to this grade
           const gradeInfo = structure.find(g => g.grade.id === gradeId);
           const gradeSectionIds = gradeInfo?.sections.map(s => s.id) || [];
           const pickedSections = selectedSections.filter(sid => gradeSectionIds.includes(sid));
-
           if (pickedSections.length === 0) {
             toast({ title: "Error", description: `Please select at least one section for Grade ${gradeInfo?.grade?.name}`, variant: "destructive" });
             return;
           }
           finalTargetSectionIds.push(...pickedSections);
-          gradesWithAnySelection.push(gradeId);
         }
       }
     }
 
-    // Prepare payload
     const payload = {
       title: newNotice.title,
       content: newNotice.content,
@@ -174,23 +153,34 @@ export default function NoticesPage() {
     };
 
     try {
-      await api.post('/notices', payload);
+      await api.post('/communication/notices', payload);
       toast({ title: "Success", description: "Notice created successfully" });
       setShowCreateNotice(false);
       resetForm();
       loadNotices();
     } catch (e) {
-      toast({ title: "Error", description: e.response?.data?.detail || "Failed to create notice", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to create notice", variant: "destructive" });
     }
   };
 
   const handleAcknowledge = async (id) => {
     try {
-      await api.post(`/notices/${id}/acknowledge`);
+      await api.post(`/communication/notices/${id}/acknowledge`);
       toast({ title: "Acknowledged", description: "You have acknowledged this notice." });
+      const updateState = (n) => n.id === id ? { ...n, is_acknowledged: true } : n;
+      setNotices(prev => prev.map(updateState));
+      if (selectedNotice && selectedNotice.id === id) {
+        setSelectedNotice(prev => ({ ...prev, is_acknowledged: true }));
+      }
+      window.dispatchEvent(new Event('sis-refresh-counts'));
     } catch (e) {
+      // if already acked, treating as success UI wise
       if (e.response?.data?.status === "already_acknowledged") {
-        toast({ title: "Info", description: "You have already acknowledged this notice." });
+        toast({ title: "Info", description: "Already acknowledged." });
+        const updateState = (n) => n.id === id ? { ...n, is_acknowledged: true } : n;
+        setNotices(prev => prev.map(updateState));
+        if (selectedNotice?.id === id) setSelectedNotice(prev => ({ ...prev, is_acknowledged: true }));
+        window.dispatchEvent(new Event('sis-refresh-counts'));
       } else {
         toast({ title: "Error", description: "Failed to acknowledge", variant: "destructive" });
       }
@@ -198,14 +188,7 @@ export default function NoticesPage() {
   };
 
   const resetForm = () => {
-    setNewNotice({
-      title: "",
-      content: "",
-      priority: "NORMAL",
-      scheduled_at: "",
-      expires_at: "",
-      require_ack: false
-    });
+    setNewNotice({ title: "", content: "", priority: "NORMAL", scheduled_at: "", expires_at: "", require_ack: false });
     setTargetRoles([]);
     setTargetingModes({});
     setSelectedGrades([]);
@@ -213,228 +196,316 @@ export default function NoticesPage() {
     setGradeAllSections({});
   };
 
-  const getSeverityBadge = (priority) => {
+  // --- Helpers ---
+  const getSeverityBadge = (priority, isSmall = false) => {
+    const sizeClasses = isSmall ? "px-1.5 py-0.5 text-[10px]" : "px-2.5 py-0.5 text-xs";
     switch (priority) {
       case "CRITICAL":
-        return <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100"><AlertTriangle className="w-3 h-3 mr-1" />Critical</Badge>;
+        return <Badge className={`bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 ${sizeClasses}`}>Critial</Badge>;
       case "IMPORTANT":
-        return <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100"><AlertCircle className="w-3 h-3 mr-1" />Important</Badge>;
+        return <Badge className={`bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 ${sizeClasses}`}>Important</Badge>;
       default:
-        return <Badge className="bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-100"><Info className="w-3 h-3 mr-1" />Normal</Badge>;
+        return <Badge className={`bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 ${sizeClasses}`}>Normal</Badge>;
     }
   };
 
-  // Filter Logic
   const filteredNotices = notices.filter(n => {
-    const matchesSearch = searchQuery === "" ||
-      n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.content.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = searchQuery === "" || n.title.toLowerCase().includes(searchQuery.toLowerCase()) || n.content.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesPriority = priorityFilter === "ALL" || n.priority === priorityFilter;
     return matchesSearch && matchesPriority;
   });
 
-  // Sort CRITICAL first
   const sortedNotices = [...filteredNotices].sort((a, b) => {
+    // Critical first, then date
     if (a.priority === "CRITICAL" && b.priority !== "CRITICAL") return -1;
     if (b.priority === "CRITICAL" && a.priority !== "CRITICAL") return 1;
     return new Date(b.created_at) - new Date(a.created_at);
   });
 
-  return (
-    <div className="space-y-6 col-span-full min-h-[calc(100vh-10rem)] p-6" data-testid="notices-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 border-b-2 border-emerald-600 w-max pb-1">
-          Notices
-        </h1>
+  const handleNoticeClick = async (notice) => {
+    setSelectedNotice(notice);
 
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Search notices..."
-              className="pl-9 bg-white border-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+    // If already read, do nothing further
+    if (notice.is_read) return;
+
+    try {
+      // Optimistic update locally
+      setNotices(prev => prev.map(n =>
+        n.id === notice.id ? { ...n, is_read: true } : n
+      ));
+
+      // API Call
+      await api.post(`/communication/notices/${notice.id}/read`);
+
+      // Trigger sidebar refresh
+      window.dispatchEvent(new Event('sis-refresh-counts'));
+    } catch (err) {
+      console.error("Failed to mark notice as read", err);
+    }
+  };
+
+  // --- Render Helpers ---
+  const renderListPanel = () => (
+    <div className="flex flex-col h-full bg-white border-r border-slate-200">
+      {/* HEADER */}
+      <div className="p-5 border-b border-slate-100 shrink-0">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Notices</h1>
+            <p className="text-sm text-slate-500">School announcements & alerts</p>
           </div>
           {canCreateNotice && (
-            <Button
-              onClick={() => { resetForm(); setShowCreateNotice(true); }}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-              data-testid="create-notice-button"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Create Notice
+            <Button size="sm" onClick={() => { resetForm(); setShowCreateNotice(true); }} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9 px-3">
+              <Plus className="w-4 h-4 mr-2" /> New
             </Button>
           )}
         </div>
-      </div>
 
-      <div className="space-y-6">
-        {/* Filter Chips */}
-        <div className="flex flex-wrap gap-2">
-          {["ALL", "CRITICAL", "IMPORTANT", "NORMAL"].map(p => (
-            <Badge
-              key={p}
-              variant={priorityFilter === p ? "default" : "outline"}
-              className={`cursor-pointer px-4 py-1.5 ${priorityFilter === p ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-              onClick={() => setPriorityFilter(p)}
-            >
-              {p === "ALL" ? "All Notices" : p.charAt(0) + p.slice(1).toLowerCase()}
-            </Badge>
-          ))}
-        </div>
-
-        {/* List */}
-        <div className="grid gap-4">
-          {loading ? (
-            <Card className="border-dashed shadow-none bg-slate-50/50">
-              <CardContent className="py-12 text-center text-slate-400">
-                Loading notices...
-              </CardContent>
-            </Card>
-          ) : sortedNotices.length === 0 ? (
-            <Card className="border-dashed shadow-none bg-slate-50/50">
-              <CardContent className="py-16 text-center flex flex-col items-center">
-                <div className="bg-slate-100 p-4 rounded-full mb-4">
-                  <Info className="w-6 h-6 text-slate-400" />
-                </div>
-                <h3 className="text-lg font-medium text-slate-900">No notices found</h3>
-                <p className="text-slate-500 text-sm mt-1 max-w-sm">
-                  There are no notices matching your criteria.
-                  {canCreateNotice && " Create a new notice to get started."}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            sortedNotices.map((notice) => (
-              <Card
-                key={notice.id}
-                className={`group transition-all hover:shadow-md border-l-4 ${notice.priority === "CRITICAL" ? "border-l-red-500" :
-                    notice.priority === "IMPORTANT" ? "border-l-amber-500" : "border-l-slate-300"
-                  }`}
+        <div className="mt-4 space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search..."
+              className="pl-9 bg-slate-50 border-slate-200 h-10 focus-visible:ring-emerald-500"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar mask-fade-right">
+            {["ALL", "CRITICAL", "IMPORTANT", "NORMAL"].map(p => (
+              <button
+                key={p}
+                onClick={() => setPriorityFilter(p)}
+                className={`
+                           flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+                           ${priorityFilter === p
+                    ? 'bg-slate-800 text-white border-slate-800'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'}
+                        `}
               >
-                <CardContent className="p-5 flex items-start gap-4">
-                  <div className="flex-1 space-y-1.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      {getSeverityBadge(notice.priority)}
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {new Date(notice.created_at).toLocaleDateString()}
-                      </span>
-                      {notice.scheduled_at && new Date(notice.scheduled_at) > new Date() && (
-                        <Badge variant="outline" className="text-xs border-blue-200 text-blue-700 bg-blue-50">
-                          <Clock className="w-3 h-3 mr-1" /> Scheduled
-                        </Badge>
-                      )}
-                      {notice.require_ack && (
-                        <Badge variant="outline" className="text-xs border-purple-200 text-purple-700 bg-purple-50">
-                          Ack Required
-                        </Badge>
-                      )}
-                    </div>
-                    <h3 className="font-semibold text-lg text-slate-900 group-hover:text-emerald-700 transition-colors">
-                      {notice.title}
-                    </h3>
-                    <p className="text-slate-500 line-clamp-2 text-sm">
-                      {notice.content}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedNotice(notice)} className="shrink-0 text-slate-400 hover:text-emerald-600">
-                    View Details
-                  </Button>
-                </CardContent>
-              </Card>
-            ))
-          )}
+                {p === "ALL" ? "All" : p.charAt(0) + p.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* View Detail Sheet */}
-      <Sheet open={!!selectedNotice} onOpenChange={(open) => !open && setSelectedNotice(null)}>
-        <SheetContent className="sm:max-w-xl w-[90vw] overflow-y-auto">
-          {selectedNotice && (
-            <div className="space-y-6 mt-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  {getSeverityBadge(selectedNotice.priority)}
-                  <span className="text-sm text-slate-500">
-                    {new Date(selectedNotice.created_at).toLocaleDateString()}
-                  </span>
+      {/* LIST CONTENT */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50/50">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-40 text-slate-400">
+            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent animate-spin rounded-full mb-2"></div>
+            Loading...
+          </div>
+        ) : sortedNotices.length === 0 ? (
+          <div className="text-center py-12 text-slate-400">
+            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Bell className="w-6 h-6 text-slate-300" />
+            </div>
+            <p className="text-sm">No notices found.</p>
+          </div>
+        ) : (
+          sortedNotices.map(notice => {
+            const isActive = selectedNotice?.id === notice.id;
+            const isUnread = !notice.is_read;
+
+            return (
+              <div
+                key={notice.id}
+                onClick={() => handleNoticeClick(notice)}
+                className={`
+                           group p-4 rounded-xl border cursor-pointer transition-all duration-200 relative overflow-hidden bg-white
+                           ${isActive
+                    ? 'border-emerald-500 shadow-md ring-1 ring-emerald-500/10'
+                    : 'border-slate-200 hover:border-emerald-300 hover:shadow-sm'}
+                           ${notice.priority === 'CRITICAL' && !isActive ? 'border-l-4 border-l-orange-500' : ''}
+                        `}
+              >
+                {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />}
+
+                {/* Unread Indicator */}
+                {isUnread && !isActive && (
+                  <div className="absolute right-2 top-2 w-2 h-2 bg-blue-500 rounded-full ring-2 ring-white" title="Unread"></div>
+                )}
+
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-2">
+                    {getSeverityBadge(notice.priority, true)}
+                    {notice.require_ack && !notice.is_acknowledged && (
+                      <Badge className="px-1.5 py-0.5 text-[10px] bg-orange-50 text-orange-700 border-orange-200">Ack Required</Badge>
+                    )}
+                    {notice.is_acknowledged && (
+                      <Badge className="px-1.5 py-0.5 text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Done</Badge>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400">{new Date(notice.created_at).toLocaleDateString()}</span>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900">{selectedNotice.title}</h2>
-              </div>
 
-              <div className="prose prose-slate max-w-none text-slate-700 whitespace-pre-wrap leading-relaxed">
-                {selectedNotice.content}
+                <h3 className={`font-semibold text-sm mb-1 ${isActive ? 'text-emerald-900' : 'text-slate-900'} ${isUnread ? 'font-bold text-slate-900' : ''}`}>
+                  {notice.title}
+                </h3>
+                <p className={`text-xs ${isUnread ? 'text-slate-600' : 'text-slate-500'} line-clamp-2 leading-relaxed`}>
+                  {notice.content}
+                </p>
               </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 
-              {selectedNotice.require_ack && (
-                <Card className="bg-purple-50 border-purple-200">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-purple-900">Acknowledgment Required</p>
-                      <p className="text-xs text-purple-700 mt-0.5">Please confirm you have read this notice.</p>
+  const renderDetailsPanel = () => (
+    <div className="flex flex-col h-full bg-slate-50 relative overflow-hidden">
+      {!selectedNotice ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8">
+          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+            <Info className="w-8 h-8 text-slate-300" />
+          </div>
+          <h3 className="text-lg font-medium text-slate-600">Select a notice</h3>
+          <p className="text-sm">View full details and acknowledgments.</p>
+        </div>
+      ) : (
+        <>
+          {/* Mobile Header */}
+          <div className="md:hidden flex items-center gap-2 p-4 border-b bg-white sticky top-0 z-10">
+            <Button variant="ghost" size="icon" onClick={() => setSelectedNotice(null)}>
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+            <span className="font-semibold text-slate-900">Details</span>
+          </div>
+
+          {/* Scroll Content */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Action Callout - if Ack Required */}
+            {selectedNotice.require_ack && (
+              <div className={`p-4 md:p-6 pb-0`}>
+                <Card className={`${selectedNotice.is_acknowledged ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'} shadow-sm`}>
+                  <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className={`p-2 rounded-full ${selectedNotice.is_acknowledged ? 'bg-emerald-100 text-emerald-600' : 'bg-orange-100 text-orange-600'}`}>
+                        {selectedNotice.is_acknowledged ? <Check className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                      </div>
+                      <div>
+                        <h4 className={`font-semibold text-sm ${selectedNotice.is_acknowledged ? 'text-emerald-900' : 'text-orange-900'}`}>
+                          {selectedNotice.is_acknowledged ? "Acknowledged" : "Acknowledgment Required"}
+                        </h4>
+                        <p className={`text-xs mt-0.5 ${selectedNotice.is_acknowledged ? 'text-emerald-700' : 'text-orange-700'}`}>
+                          {selectedNotice.is_acknowledged
+                            ? "You have confirmed receipt of this notice."
+                            : "Please confirm that you have read and understood this notice."}
+                        </p>
+                      </div>
                     </div>
-                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white" onClick={() => handleAcknowledge(selectedNotice.id)}>
-                      Acknowledge
-                    </Button>
+                    {!selectedNotice.is_acknowledged && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleAcknowledge(selectedNotice.id)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap w-full sm:w-auto"
+                      >
+                        Acknowledge
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
-              )}
+              </div>
+            )}
 
-              <div className="pt-6 border-t border-slate-100 grid grid-cols-2 gap-4 text-xs text-slate-500">
-                <div>
-                  <span className="font-semibold block text-slate-700">Author ID</span>
-                  {selectedNotice.author_id}
+            <div className="p-4 md:p-6 max-w-4xl mx-auto">
+              {/* Meta Header */}
+              <div className="mb-6">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {getSeverityBadge(selectedNotice.priority)}
+                  <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                    ID: #{selectedNotice.id.toString().slice(0, 6)}
+                  </span>
+                  {selectedNotice.expires_at && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1 ml-auto">
+                      <Clock className="w-3 h-3" /> Expires: {new Date(selectedNotice.expires_at).toLocaleDateString()}
+                    </span>
+                  )}
                 </div>
-                {selectedNotice.expires_at && (
-                  <div>
-                    <span className="font-semibold block text-slate-700">Expires</span>
-                    {new Date(selectedNotice.expires_at).toLocaleDateString()}
-                  </div>
-                )}
+                <h1 className="text-2xl font-bold text-slate-900 mb-2 leading-tight">{selectedNotice.title}</h1>
+                <div className="flex items-center gap-4 text-xs text-slate-500 border-b border-slate-100 pb-4">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> {new Date(selectedNotice.created_at).toLocaleString()}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <User className="w-3 h-3" /> Author ID: {selectedNotice.author_id}
+                  </span>
+                  {selectedNotice.scheduled_at && new Date(selectedNotice.scheduled_at) > new Date() && (
+                    <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded font-medium">Scheduled</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Content Body */}
+              <div className="prose prose-slate prose-sm max-w-none text-slate-700 leading-relaxed whitespace-pre-wrap">
+                {selectedNotice.content}
               </div>
             </div>
-          )}
-        </SheetContent>
-      </Sheet>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
-      {/* Create Notice Modal */}
+  // --- RENDER ---
+  return (
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-slate-50 w-full" data-testid="notices-page">
+
+      {/* MOBILE: Conditional Rendering */}
+      <div className="md:hidden flex h-full w-full">
+        {isMobileDetailsOpen ? renderDetailsPanel() : renderListPanel()}
+      </div>
+
+      {/* DESKTOP: Draggable Split Pane */}
+      <div className="hidden md:flex h-full w-full">
+        <ResizableSplitPane
+          storageKey="split:notices"
+          left={renderListPanel()}
+          right={renderDetailsPanel()}
+          defaultLeft={440}
+          minLeft={360}
+          minRight={400}
+        />
+      </div>
+
+      {/* Create Modal - Cleaned up */}
       <Dialog open={showCreateNotice} onOpenChange={setShowCreateNotice}>
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white p-0 gap-0">
+          <DialogHeader className="p-6 pb-4 border-b">
             <DialogTitle>Create New Notice</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label htmlFor="notice-title">Title *</Label>
-              <Input
-                id="notice-title"
-                value={newNotice.title}
-                onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
-                placeholder="e.g., School Holiday Announcement"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="notice-content">Content *</Label>
-              <textarea
-                id="notice-content"
-                value={newNotice.content}
-                onChange={(e) => setNewNotice({ ...newNotice, content: e.target.value })}
-                placeholder="Notice details..."
-                rows={5}
-                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-slate-400"
-              />
+          <div className="p-6 space-y-6">
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs font-semibold text-slate-700 mb-1.5 block">Title *</Label>
+                <Input
+                  value={newNotice.title}
+                  onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
+                  placeholder="e.g., School Holiday Announcement"
+                  className="bg-slate-50 border-slate-200"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-slate-700 mb-1.5 block">Content *</Label>
+                <textarea
+                  value={newNotice.content}
+                  onChange={(e) => setNewNotice({ ...newNotice, content: e.target.value })}
+                  placeholder="Detailed message..."
+                  rows={6}
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
+                />
+              </div>
             </div>
 
-            {/* Targeting Section */}
-            <div className="border border-slate-200 rounded-lg p-4 space-y-4">
-              <Label className="font-bold text-base">Target Audience</Label>
-
-              <div className="space-y-4">
+            <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
+              <Label className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-emerald-600" /> Target Audience
+              </Label>
+              <div className="grid grid-cols-2 gap-y-3 gap-x-6">
                 {[
                   { key: "student", label: "Students" },
                   { key: "parent", label: "Parents" },
@@ -443,126 +514,53 @@ export default function NoticesPage() {
                   { key: "school_admin", label: "Admins" },
                   { key: "guard", label: "Guards" },
                 ].map(({ key, label }) => (
-                  <div key={key} className="space-y-2">
-                    <div className="flex items-center justify-between">
+                  <div key={key} className="col-span-1">
+                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <Checkbox
-                          id={`role-${key}`}
+                          id={`r-${key}`}
                           checked={targetRoles.includes(key)}
-                          onCheckedChange={(c) => {
-                            if (c) {
-                              setTargetRoles([...targetRoles, key]);
-                              setTargetingModes({ ...targetingModes, [key]: 'ALL' });
-                            } else {
-                              setTargetRoles(targetRoles.filter(r => r !== key));
-                            }
+                          onCheckedChange={c => {
+                            if (c) { setTargetRoles([...targetRoles, key]); setTargetingModes({ ...targetingModes, [key]: 'ALL' }); }
+                            else { setTargetRoles(targetRoles.filter(r => r !== key)); }
                           }}
                         />
-                        <Label htmlFor={`role-${key}`} className="font-medium cursor-pointer">{label}</Label>
+                        <Label htmlFor={`r-${key}`} className="text-sm font-medium cursor-pointer">{label}</Label>
                       </div>
-
-                      {/* Targeting Mode Toggle (Only show if checked) */}
-                      {targetRoles.includes(key) && (
-                        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-md">
-                          <button
-                            type="button"
-                            onClick={() => setTargetingModes({ ...targetingModes, [key]: 'ALL' })}
-                            className={`px-3 py-1 text-xs rounded-sm font-medium transition-colors ${targetingModes[key] === 'ALL' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}
-                          >
-                            All
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTargetingModes({ ...targetingModes, [key]: 'SPECIFIC' })}
-                            className={`px-3 py-1 text-xs rounded-sm font-medium transition-colors ${targetingModes[key] === 'SPECIFIC' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-900'}`}
-                          >
-                            Specific
-                          </button>
-                        </div>
+                      {targetRoles.includes(key) && ["student", "parent"].includes(key) && (
+                        <select
+                          className="text-[10px] border rounded bg-white px-1 py-0.5"
+                          value={targetingModes[key] || 'ALL'}
+                          onChange={e => setTargetingModes({ ...targetingModes, [key]: e.target.value })}
+                        >
+                          <option value="ALL">All</option>
+                          <option value="SPECIFIC">Specific</option>
+                        </select>
                       )}
                     </div>
 
-                    {/* Specific Drilldown (Students/Parents only for MVP) */}
+                    {/* Specific Logic UI (Simplified for visual cleaness) */}
                     {targetRoles.includes(key) && targetingModes[key] === 'SPECIFIC' && ["student", "parent"].includes(key) && (
-                      <div className="ml-6 pl-4 border-l-2 border-slate-100 py-2 space-y-4">
-                        <p className="text-xs text-slate-500">Select specific grades or sections to target.</p>
-
-                        {/* Grades List */}
-                        <div className="max-h-60 overflow-y-auto space-y-4 pr-2">
-                          {structure.map(({ grade, sections }) => (
-                            <div key={grade.id} className="space-y-2">
+                      <div className="ml-6 mt-2 p-2 bg-white border rounded text-xs text-slate-500 space-y-2">
+                        <p>Select grades/sections below.</p>
+                        <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                          {structure.map(g => (
+                            <div key={g.grade.id}>
                               <div className="flex items-center gap-2">
                                 <Checkbox
-                                  id={`grade-${grade.id}`}
-                                  checked={selectedGrades.includes(grade.id)}
-                                  onCheckedChange={(c) => {
-                                    if (c) {
-                                      setSelectedGrades([...selectedGrades, grade.id]);
-                                      setGradeAllSections({ ...gradeAllSections, [grade.id]: true }); // Default to All sections on select
-                                    } else {
-                                      setSelectedGrades(selectedGrades.filter(id => id !== grade.id));
-                                    }
+                                  id={`g-${g.grade.id}`}
+                                  checked={selectedGrades.includes(g.grade.id)}
+                                  onCheckedChange={c => {
+                                    if (c) { setSelectedGrades([...selectedGrades, g.grade.id]); setGradeAllSections({ ...gradeAllSections, [g.grade.id]: true }); }
+                                    else setSelectedGrades(selectedGrades.filter(x => x !== g.grade.id));
                                   }}
+                                  className="w-3 h-3"
                                 />
-                                <Label htmlFor={`grade-${grade.id}`} className="font-semibold text-sm cursor-pointer">{grade.name}</Label>
+                                <label htmlFor={`g-${g.grade.id}`} className="font-medium cursor-pointer">{g.grade.name}</label>
                               </div>
-
-                              {/* Sections Drilldown */}
-                              {selectedGrades.includes(grade.id) && (
-                                <div className="ml-6 space-y-2 bg-slate-50/50 p-2 rounded border border-slate-100">
-                                  {/* All Sections Toggle */}
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Switch
-                                      id={`toggle-${grade.id}`}
-                                      checked={!!gradeAllSections[grade.id]}
-                                      onCheckedChange={(c) => setGradeAllSections({ ...gradeAllSections, [grade.id]: c })}
-                                      className="scale-75 origin-left"
-                                    />
-                                    <Label htmlFor={`toggle-${grade.id}`} className="text-xs text-slate-600">
-                                      Target All Sections in {grade.name}
-                                    </Label>
-                                  </div>
-
-                                  {/* Individual Sections (Only if All Sections is FALSE) */}
-                                  {!gradeAllSections[grade.id] && (
-                                    <div className="grid grid-cols-2 gap-2 pl-2">
-                                      <div className="col-span-2 flex justify-between">
-                                        <Button variant="link" size="sm" className="h-auto p-0 text-[10px]" onClick={() => {
-                                          const ids = sections.map(s => s.id);
-                                          setSelectedSections([...new Set([...selectedSections, ...ids])]);
-                                        }}>Select All</Button>
-                                        <Button variant="link" size="sm" className="h-auto p-0 text-[10px] text-red-500" onClick={() => {
-                                          const ids = sections.map(s => s.id);
-                                          setSelectedSections(selectedSections.filter(sid => !ids.includes(sid)));
-                                        }}>Clear</Button>
-                                      </div>
-                                      {sections.map(sec => (
-                                        <div key={sec.id} className="flex items-center gap-2">
-                                          <Checkbox
-                                            id={`sec-${sec.id}`}
-                                            checked={selectedSections.includes(sec.id)}
-                                            onCheckedChange={(c) => {
-                                              if (c) setSelectedSections([...selectedSections, sec.id]);
-                                              else setSelectedSections(selectedSections.filter(sid => sid !== sec.id));
-                                            }}
-                                          />
-                                          <Label htmlFor={`sec-${sec.id}`} className="text-xs cursor-pointer">{sec.name}</Label>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Helper for other roles */}
-                    {targetRoles.includes(key) && targetingModes[key] === 'SPECIFIC' && !["student", "parent"].includes(key) && (
-                      <div className="ml-6 pl-4 border-l-2 border-slate-100 py-2">
-                        <p className="text-xs text-amber-600">Individual targeting not yet available for this role. Notice will be sent to ALL members with this role.</p>
                       </div>
                     )}
                   </div>
@@ -570,68 +568,36 @@ export default function NoticesPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Priority Selection */}
-              <div>
-                <Label>Priority</Label>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-700">Priority Level</Label>
                 <Select value={newNotice.priority} onValueChange={(val) => setNewNotice({ ...newNotice, priority: val })}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger className="bg-slate-50 border-slate-200">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="NORMAL">Normal</SelectItem>
                     <SelectItem value="IMPORTANT">Important</SelectItem>
-                    <SelectItem value="CRITICAL">Critical (Triggers Email)</SelectItem>
+                    <SelectItem value="CRITICAL">Critical</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Scheduling & Options */}
-              <div>
-                <Label>Options</Label>
-                <div className="flex items-center gap-2 mt-3 border rounded-md p-2 bg-slate-50">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-700">Acknowledgment</Label>
+                <div className="flex items-center gap-2 mt-2 p-2 border border-slate-200 rounded-md bg-white">
                   <Checkbox
                     id="req-ack"
                     checked={newNotice.require_ack}
                     onCheckedChange={(c) => setNewNotice({ ...newNotice, require_ack: c })}
                   />
-                  <Label htmlFor="req-ack" className="font-normal cursor-pointer text-sm">Require Acknowledgment</Label>
+                  <Label htmlFor="req-ack" className="font-normal cursor-pointer text-sm">Require Receipt Confirmation</Label>
                 </div>
               </div>
             </div>
-
-            {/* Timings */}
-            <div className="grid grid-cols-2 gap-4 border-t pt-4">
-              <div>
-                <Label className="text-xs text-slate-500 uppercase font-semibold">Schedule Post (Optional)</Label>
-                <Input
-                  type="datetime-local"
-                  className="mt-1"
-                  value={newNotice.scheduled_at}
-                  onChange={e => setNewNotice({ ...newNotice, scheduled_at: e.target.value })}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">Leave empty to post immediately</p>
-              </div>
-              <div>
-                <Label className="text-xs text-slate-500 uppercase font-semibold">Expiry Date (Optional)</Label>
-                <Input
-                  type="datetime-local"
-                  className="mt-1"
-                  value={newNotice.expires_at}
-                  onChange={e => setNewNotice({ ...newNotice, expires_at: e.target.value })}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">Leave empty to never expire</p>
-              </div>
-            </div>
-
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateNotice(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateNotice} className="bg-emerald-600 hover:bg-emerald-800 text-white" data-testid="confirm-create-notice">
-              Create Notice
-            </Button>
+          <DialogFooter className="p-6 pt-4 border-t bg-slate-50">
+            <Button variant="outline" onClick={() => setShowCreateNotice(false)}>Cancel</Button>
+            <Button onClick={handleCreateNotice} className="bg-emerald-600 hover:bg-emerald-700 text-white">Publish Notice</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -10,7 +10,9 @@ import {
     Activity,
     FileText,
     LogOut,
-    Globe
+    Globe,
+    Mail,
+    ArrowLeft
 } from 'lucide-react';
 
 const SuperAdminLayout = () => {
@@ -22,6 +24,7 @@ const SuperAdminLayout = () => {
                 { path: '/god-view', label: 'Overview', icon: LayoutDashboard },
                 { path: '/god-view/schools', label: 'Schools', icon: Building2 },
                 { path: '/god-view/finance', label: 'Finance', icon: DollarSign },
+                { path: '/god-view/inquiries', label: 'Inquiries', icon: Mail },
             ]
         },
         {
@@ -85,6 +88,17 @@ const SuperAdminLayout = () => {
                         </div>
                     ))}
                 </nav>
+
+                {/* Return to Dashboard */}
+                <div className="px-4 pb-2">
+                    <NavLink
+                        to="/platform-admin"
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 font-medium transition-colors border border-slate-200 justify-center"
+                    >
+                        <ArrowLeft className="w-4 h-4" />
+                        Return to Dashboard
+                    </NavLink>
+                </div>
 
                 {/* User Profile */}
                 <div className="p-4 border-t border-gray-100">

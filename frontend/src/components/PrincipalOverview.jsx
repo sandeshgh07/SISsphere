@@ -672,12 +672,11 @@ export default function PrincipalOverview() {
                                 });
                             }
 
-                            const csvContent = "data:text/csv;charset=utf-8,"
-                                + rows.map(e => e.join(",")).join("\n");
-
-                            const encodedUri = encodeURI(csvContent);
+                            const csvContent = rows.map(e => e.join(",")).join("\n");
+                            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                            const url = URL.createObjectURL(blob);
                             const link = document.createElement("a");
-                            link.setAttribute("href", encodedUri);
+                            link.setAttribute("href", url);
                             link.setAttribute("download", `school_report_${new Date().toISOString().split('T')[0]}.csv`);
                             document.body.appendChild(link);
                             link.click();
@@ -685,7 +684,7 @@ export default function PrincipalOverview() {
                         }}
                     >
                         <Download className="w-4 h-4 mr-2" />
-                        Download Report
+                        <span className="text-white">Download Report</span>
                     </Button>
                 </div>
             </div>

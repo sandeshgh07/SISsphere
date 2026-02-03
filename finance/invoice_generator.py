@@ -115,7 +115,7 @@ def generate_invoices_for_period(
             finance_models.DiscountRule.school_id == school_id,
             finance_models.DiscountRule.is_active == "true"
         ).all()
-        discounts_by_student = _build_discounts_by_student(discounts)
+        discounts_by_student = _build_discounts_by_student(discounts, db, school_id)
         global_discounts = [d for d in discounts if d.student_id is None]
         
         # Step 5: Process each student
@@ -191,14 +191,46 @@ def _build_addons_by_student(enrollments: List[finance_models.StudentAddonEnroll
     return result
 
 
-def _build_discounts_by_student(discounts: List[finance_models.DiscountRule]) -> Dict[str, List]:
-    """Build lookup of discounts by student_id"""
+def _build_discounts_by_student(discounts: List[finance_models.DiscountRule], db: Session = None, school_id: str = None) -> Dict[str, List]:
+    """
+    Build lookup of discounts by student_id.
+    Includes both:
+    1. Legacy Rules where rule.student_id is set
+    2. New Associated Rules via StudentDiscountAssociation
+    """
     result = {}
+    
+    # 1. Process passed 'discounts' list (Legacy/Direct student_id)
     for d in discounts:
         if d.student_id:
             if d.student_id not in result:
                 result[d.student_id] = []
             result[d.student_id].append(d)
+            
+    # 2. Fetch Associations (New Logic)
+    if db and school_id:
+        try:
+            associations = db.query(finance_models.StudentDiscountAssociation).filter(
+                finance_models.StudentDiscountAssociation.school_id == school_id,
+                finance_models.StudentDiscountAssociation.is_active == "true"
+            ).all()
+            
+            # We need to map rule_id back to rule object. 
+            # Assuming 'discounts' passed in contains ALL active rules for the school.
+            rules_by_id = {d.id: d for d in discounts}
+            
+            for assoc in associations:
+                rule = rules_by_id.get(assoc.discount_rule_id)
+                if rule:
+                    if assoc.student_id not in result:
+                        result[assoc.student_id] = []
+                    # Avoid duplicates if legacy logic somehow also caught it 
+                    # (unlikely if we migrate clean, but safe to check)
+                    if rule not in result[assoc.student_id]:
+                        result[assoc.student_id].append(rule)
+        except Exception as e:
+            logger.error(f"Failed to fetch discount associations: {e}")
+            
     return result
 
 
@@ -225,6 +257,9 @@ def calculate_student_fees(
     
     # Get applicable discounts
     student_discounts = discounts_by_student.get(student.id, [])
+    # Rules explicitly linked to the student (either Legacy STUDENT_SPECIFIC or via Association)
+    authorized_rule_ids = {d.id for d in student_discounts}
+    
     all_discounts = student_discounts + global_discounts
     
     subtotal = Decimal("0")
@@ -234,7 +269,14 @@ def calculate_student_fees(
     for template in applicable_templates:
         base_amount = Decimal(str(template.amount))
         # Pass student and period/date context
-        discount_amount, rule_applied = _calculate_discount(template, base_amount, all_discounts, student, period)
+        discount_amount, rule_applied = _calculate_discount(
+            template, 
+            base_amount, 
+            all_discounts, 
+            student, 
+            period, 
+            authorized_rule_ids=authorized_rule_ids
+        )
         final_amount = base_amount - discount_amount
         
         meta = {}
@@ -448,7 +490,8 @@ def _calculate_discount(
     base_amount: Decimal,
     discounts: List[finance_models.DiscountRule],
     student: student_models.Student,
-    period: str
+    period: str,
+    authorized_rule_ids: Optional[set] = None # Set of active, associated rule IDs for this student
 ) -> (Decimal, Optional[finance_models.DiscountRule]):
     """
     Calculate total discount for a fee template.
@@ -462,6 +505,9 @@ def _calculate_discount(
         period_date = datetime.strptime(period + "-01", "%Y-%m-%d")
     except:
         period_date = datetime.now()
+        
+    if authorized_rule_ids is None:
+        authorized_rule_ids = set()
 
     for discount in discounts:
         # 0. Active Check (Already filtered in query usually, but double check)
@@ -515,12 +561,14 @@ def _calculate_discount(
                  continue
 
         # 4. Eligibility Check
-        # MANUAL_APPROVAL: Always allowed (assuming if it exists in DB, it is approved/assigned)
-        # However, for Group Rules (All Students / Grades), manual approval implies explicit assignment?
-        # Re-reading prompt: "eligibility_type enum: MANUAL_APPROVAL... For now: MANUAL_APPROVAL is allowed immediately"
-        # "Other eligibility types... must not auto-apply unless data exists"
+        # MANUAL_APPROVAL: Must be explicitly associated (in authorized_rule_ids)
+        if discount.eligibility_type == finance_models.DiscountEligibilityType.MANUAL_APPROVAL:
+             if discount.id not in authorized_rule_ids:
+                 continue
+
+        # Other eligibility types... must not auto-apply unless data exists"
         # Since we don't have tables for Sibling/Staff verification yet, we SKIP those unless stubbed logic passes.
-        if discount.eligibility_type != finance_models.DiscountEligibilityType.MANUAL_APPROVAL:
+        elif discount.eligibility_type != finance_models.DiscountEligibilityType.MANUAL_APPROVAL:
              # Stub for future: check_eligibility(student, discount.eligibility_type)
              # Default deny for safe rollout of non-manual types
              continue

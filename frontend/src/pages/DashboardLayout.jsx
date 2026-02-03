@@ -4,6 +4,8 @@ import api from '../lib/api';
 import { Outlet, Navigate, NavLink, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
+  ChevronsUpDown,
+  User,
   LayoutDashboard,
   Bell,
   GraduationCap,
@@ -22,10 +24,19 @@ import {
   Calendar,
   BookOpen
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar"
 import AIChatWidget from '../components/AIChatWidget';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import AccountSuspended from './AccountSuspended';
-import RoleSwitcher from '../components/RoleSwitcher';
 import ChildSwitcher from '../components/dashboard/ChildSwitcher';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
@@ -40,24 +51,34 @@ const DashboardLayout = () => {
   const [counts, setCounts] = useState({ notices: 0, complaints: 0, highest_priority: null });
 
   useEffect(() => {
+    const fetchCounts = () => {
+      if (user) {
+        api.get('/stats/counts')
+          .then(res => setCounts({
+            notices: res.data.notices_count,
+            complaints: res.data.complaints_count,
+            highest_priority: res.data.highest_notice_priority || null
+          }))
+          .catch(err => console.error("Failed to fetch counts", err));
+      }
+    };
+
     if (user) {
-      api.get('/stats/counts')
-        .then(res => setCounts({
-          notices: res.data.notices_count,
-          complaints: res.data.complaints_count,
-          highest_priority: res.data.highest_notice_priority || null
-        }))
-        .catch(err => console.error("Failed to fetch counts", err));
+      fetchCounts();
 
       if (user.role === 'parent') {
-        // Fetch children list for the switcher
         api.get('/students/parent/dashboard/summary')
-          .then(res => {
-            setChildrenList(res.data);
-          })
+          .then(res => setChildrenList(res.data))
           .catch(err => console.error("Failed to fetch children", err));
       }
     }
+
+    const handleRefresh = () => fetchCounts();
+    window.addEventListener('sis-refresh-counts', handleRefresh);
+
+    return () => {
+      window.removeEventListener('sis-refresh-counts', handleRefresh);
+    };
   }, [user]);
 
   const handleChildSwitch = (childId) => {
@@ -101,7 +122,7 @@ const DashboardLayout = () => {
 
         {/* Sidebar */}
         <aside className={`
-        fixed md:sticky md:top-0 h-screen inset-y-0 left-0 z-50 w-64 bg-nepsis-primary border-r transform transition-transform duration-200 ease-in-out
+        fixed md:sticky md:top-0 h-screen inset-y-0 left-0 z-50 w-64 bg-sissphere-primary border-r transform transition-transform duration-200 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0 flex flex-col shadow-xl md:shadow-none
       `}>
@@ -113,7 +134,7 @@ const DashboardLayout = () => {
                   {user?.school_logo_url ? (
                     <img src={user.school_logo_url} alt="Logo" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-nepsis-primary font-bold">N</span>
+                    <span className="text-sissphere-primary font-bold">N</span>
                   )}
                 </div>
                 <span className="font-bold text-xl text-white">{user?.school_name || "Nepsis"}</span>
@@ -148,6 +169,23 @@ const DashboardLayout = () => {
                 <span>{user?.role === 'parent' && selectedChildId ? 'Student Overview' : 'Overview'}</span>
               </NavLink>
 
+              {user?.role === 'parent' && (
+                <>
+                  <NavLink to="/dashboard/parent/academics" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                    <GraduationCap size={20} />
+                    <span>Academics</span>
+                  </NavLink>
+                  <NavLink to="/dashboard/parent/financials" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                    <CreditCard size={20} />
+                    <span>Financials</span>
+                  </NavLink>
+                  <NavLink to="/dashboard/parent/directory" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
+                    <Users size={20} />
+                    <span>Directory</span>
+                  </NavLink>
+                </>
+              )}
+
               <NavLink
                 to="/dashboard/notices"
                 className={({ isActive }) => {
@@ -161,7 +199,7 @@ const DashboardLayout = () => {
                 <div className="relative">
                   <Bell size={20} />
                   {counts.notices > 0 && (
-                    <span className={`absolute -top-2 -right-2 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold ${counts.highest_priority === 'CRITICAL' || counts.highest_priority === 'IMPORTANT' ? 'bg-red-500' : 'bg-nepsis-alert'
+                    <span className={`absolute -top-2 -right-2 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold ${counts.highest_priority === 'CRITICAL' || counts.highest_priority === 'IMPORTANT' ? 'bg-red-500' : 'bg-sissphere-alert'
                       }`}>
                       {counts.notices > 9 ? '9+' : counts.notices}
                     </span>
@@ -170,12 +208,12 @@ const DashboardLayout = () => {
                 <span>Notices</span>
               </NavLink>
 
-              {user?.role !== 'school_admin' && user?.role !== 'super_admin' && (
+              {user?.role !== 'school_admin' && (
                 <NavLink to="/dashboard/complaints" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors relative ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <div className="relative">
                     <MessageCircle size={20} />
                     {counts.complaints > 0 && (
-                      <span className="absolute -top-2 -right-2 bg-nepsis-alert text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">
+                      <span className="absolute -top-2 -right-2 bg-sissphere-alert text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">
                         {counts.complaints > 9 ? '9+' : counts.complaints}
                       </span>
                     )}
@@ -198,13 +236,13 @@ const DashboardLayout = () => {
                 </NavLink>
               )}
 
-              {['super_admin', 'principal', 'school_admin'].includes(user?.role) && (
+              {['principal', 'school_admin'].includes(user?.role) && (
                 <NavLink to="/dashboard/academics" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <GraduationCap size={20} />
                   <span>Academics</span>
                 </NavLink>
               )}
-              {['super_admin', 'principal'].includes(user?.role) && (
+              {['principal'].includes(user?.role) && (
                 <NavLink to="/dashboard/academic-setup" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <Settings size={20} />
                   <span>Academic Setup</span>
@@ -221,7 +259,7 @@ const DashboardLayout = () => {
                   )}
 
                   {/* Financial Setup (Old Fees Module) */}
-                  {['principal', 'super_admin', 'school_admin'].includes(user?.role) && (
+                  {['principal', 'school_admin'].includes(user?.role) && (
                     <NavLink to="/dashboard/fees" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                       <Settings size={20} />
                       <span>Financial Setup</span>
@@ -229,7 +267,7 @@ const DashboardLayout = () => {
                   )}
                 </>
               )}
-              {(['super_admin', 'board', 'school_admin'].includes(user?.role)) && (
+              {(['board', 'school_admin'].includes(user?.role)) && (
                 <NavLink to="/dashboard/board-analytics" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <BarChart3 size={20} />
                   <span>Board Room</span>
@@ -249,7 +287,7 @@ const DashboardLayout = () => {
                 </NavLink>
               )}
 
-              {['super_admin', 'principal', 'teacher'].includes(user?.role) && (
+              {['principal', 'teacher'].includes(user?.role) && (
                 <NavLink to="/dashboard/grading" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <ClipboardList size={20} />
                   <span>Grading</span>
@@ -257,7 +295,7 @@ const DashboardLayout = () => {
               )}
 
               {/* Attendance Management (Teacher) */}
-              {['teacher', 'principal', 'super_admin'].includes(user?.role) && (
+              {['teacher', 'principal'].includes(user?.role) && (
                 <NavLink to="/dashboard/attendance/record" className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-white/10 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`}>
                   <CheckCircle size={20} />
                   <span>Record Attendance</span>
@@ -291,38 +329,57 @@ const DashboardLayout = () => {
               )}
             </nav>
 
-            <div className="p-4 border-t border-white/10 shrink-0 mt-auto bg-nepsis-primary">
-              <Button variant="outline" className="w-full justify-start gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white" onClick={logout}>
-                <LogOut size={16} />
-                Sign Out
-              </Button>
+            <div className="p-4 border-t border-white/10 shrink-0 mt-auto bg-sissphere-primary">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-start gap-2 h-auto py-2 px-2 hover:bg-white/10 text-white group">
+                    <Avatar className="h-8 w-8 border border-white/20">
+                      <AvatarImage src={user?.avatar_url} />
+                      <AvatarFallback className="bg-sissphere-primary-light text-sissphere-primary font-bold">
+                        {user?.email?.[0]?.toUpperCase() || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col items-start overflow-hidden text-left flex-1 min-w-0">
+                      <span className="text-sm font-medium truncate w-full group-hover:text-white transition-colors capitalize">
+                        {user.role?.replace('_', ' ')}
+                      </span>
+                      <span className="text-xs text-gray-300 truncate w-full">
+                        {user?.email}
+                      </span>
+                    </div>
+                    <ChevronsUpDown className="ml-auto h-4 w-4 opacity-50 text-gray-300" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 mb-2" side="right" align="end">
+                  <div className="flex flex-col space-y-2">
+                    <div className="px-2 py-1.5 text-sm text-gray-500 font-medium border-b border-gray-100">
+                      Signed in as <span className="text-gray-900 font-semibold">{user?.email}</span>
+                    </div>
+                    <div className="px-2 py-1 text-xs text-gray-400 uppercase tracking-wider font-bold">
+                      {user.role?.replace('_', ' ')}
+                    </div>
+                    <Button variant="ghost" className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={logout}>
+                      <LogOut size={16} />
+                      Sign Out
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         </aside>
 
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0">
-          <header className="bg-white border-b h-16 flex items-center justify-between px-4 md:px-8 sticky top-0 z-30">
-            <div className="flex items-center">
-              <button onClick={toggleSidebar} className="mr-4 md:hidden">
-                <Menu size={24} />
-              </button>
-              <h1 className="text-lg font-semibold capitalize">
-                {useLocation().pathname.split('/').pop().replace(/-/g, ' ') || 'Dashboard'}
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-nepsis-primary text-white flex items-center justify-center font-bold text-sm">
-                  {user.sub ? user.sub[0].toUpperCase() : 'U'}
-                </div>
-                <div className="hidden md:block w-32">
-                  <RoleSwitcher theme="light" />
-                </div>
-              </div>
-            </div>
-          </header>
+          {/* Mobile Header / Sidebar Toggle */}
+          <div className="md:hidden flex items-center p-4 bg-white border-b sticky top-0 z-30">
+            <button onClick={toggleSidebar} className="mr-4 text-gray-600">
+              <Menu size={24} />
+            </button>
+            <h1 className="text-lg font-semibold capitalize">
+              {useLocation().pathname.split('/').pop().replace(/-/g, ' ') || 'Dashboard'}
+            </h1>
+          </div>
 
           <div className="flex-1 p-4 md:p-8 overflow-y-auto">
             <Outlet />

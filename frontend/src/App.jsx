@@ -17,6 +17,9 @@ import GuardScanner from './pages/GuardScanner';
 import FinanceOverviewDashboard from './pages/FinanceOverviewDashboard';
 import BoardExecutiveDashboard from './pages/BoardExecutiveDashboard';
 import ParentDashboard from './pages/ParentDashboard';
+import ParentAcademics from './pages/ParentAcademics';
+import ParentFinancials from './pages/ParentFinancials';
+import ParentDirectory from './pages/ParentDirectory';
 import PublicAdmission from './pages/PublicAdmission';
 import AdmissionsWorkspace from './pages/AdmissionsWorkspace';
 import ResetPassword from './pages/ResetPassword';
@@ -40,7 +43,8 @@ import {
   GodViewRetention,
   GodViewFeatures,
   GodViewHealth,
-  GodViewAuditLogs
+  GodViewAuditLogs,
+  GodViewInquiries
 } from './pages/godview';
 import ClassAnalytics from './pages/ClassAnalytics';
 import RecordAttendancePage from './pages/RecordAttendancePage';
@@ -110,8 +114,17 @@ const DashboardHome = () => {
   }
 
   // Executive Roles: Landing Logic
-  if (effectiveRole === "super_admin" || effectiveRole === "board") {
+  if (effectiveRole === "board") {
     return <Navigate to="/dashboard/board-analytics" replace />;
+  }
+
+  if (effectiveRole === "super_admin") {
+    /* 
+      Render Board Dashboard directly at /dashboard so "Overview" link stays active.
+      Previously this redirected to /board-analytics which caused visual duplication 
+      or URL mismatches. 
+    */
+    return <BoardExecutiveDashboard />;
   }
 
   // Use PrincipalOverview for principal
@@ -208,6 +221,12 @@ function App() {
             <Route path="parent-dashboard" element={<ParentDashboard />} />
             <Route path="admissions" element={<AdmissionsWorkspace />} />
             <Route path="users" element={<UserManagement />} />
+
+            {/* Parent Routes */}
+            <Route path="parent/academics" element={<ParentAcademics />} />
+            <Route path="parent/financials" element={<ParentFinancials />} />
+            <Route path="parent/directory" element={<ParentDirectory />} />
+
             <Route path="complaints" element={
               <RequireRole allowedRoles={['student', 'parent', 'teacher', 'principal', 'super_admin', 'school_admin']}>
                 <ComplaintsPage />
@@ -282,6 +301,7 @@ function App() {
             <Route path="features" element={<GodViewFeatures />} />
             <Route path="health" element={<GodViewHealth />} />
             <Route path="audit-logs" element={<GodViewAuditLogs />} />
+            <Route path="inquiries" element={<GodViewInquiries />} />
           </Route>
 
           <Route path="/" element={<LandingPage />} />

@@ -52,12 +52,12 @@ const AdmissionsWorkspace = () => {
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-nepsis-primary">Admissions Workspace</h2>
+                <h2 className="text-2xl font-bold text-sissphere-primary">Admissions Workspace</h2>
                 <div className="flex gap-2">
                     {['APPLIED', 'ELIGIBLE', 'INELIGIBLE', 'ENROLLED'].map(s => (
                         <Button key={s} variant={statusFilter === s ? "default" : "outline"}
                             onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
-                            className={statusFilter === s ? "bg-nepsis-primary text-white" : ""}>
+                            className={statusFilter === s ? "bg-sissphere-primary text-white" : ""}>
                             {s}
                         </Button>
                     ))}

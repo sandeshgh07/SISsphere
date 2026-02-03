@@ -193,7 +193,7 @@ export default function GradingWorkspace() {
             {/* Header */}
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                    <FileText className="h-7 w-7 text-nepsis-primary" />
+                    <FileText className="h-7 w-7 text-sissphere-primary" />
                     Grading & Assessment
                 </h1>
                 <p className="text-slate-500 mt-1">Manage examinations, marks entry, and student performance.</p>
@@ -529,7 +529,7 @@ export default function GradingWorkspace() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowConfigModal(false)}>Cancel</Button>
-                        <Button onClick={handleCreateAssessment} className="bg-nepsis-primary hover:bg-nepsis-primary/90">Create Assessment</Button>
+                        <Button onClick={handleCreateAssessment} className="bg-sissphere-primary hover:bg-sissphere-primary/90">Create Assessment</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

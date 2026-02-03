@@ -6,7 +6,7 @@ from audit.models import AuditLog
 from audit.listeners import set_actor_id, set_reason
 import json
 from auth.router import get_current_superuser
-from auth.dependencies import get_current_user, require_roles, Roles
+from auth.dependencies import get_current_user, require_roles, Roles, TenantAccess
 from schools.models import User, School, UserRole
 from schools.constants import SubscriptionTier
 from database import SessionLocal
@@ -111,13 +111,13 @@ async def update_school_logo(
     logo_url: str = Form(None),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    payload: dict = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     # Enforce isolation
-    if payload.get("role") != "superuser":
-        token_school_id = payload.get("school_id")
+    if current_user.role != "superuser":
+        token_school_id = str(current_user.school_id) if current_user.school_id else None
         if token_school_id != school_id:
-            log_forbidden_access(payload.get("sub"), token_school_id, school_id, f"update_school_logo {school_id}")
+            log_forbidden_access(current_user.email, token_school_id, school_id, f"update_school_logo {school_id}")
             raise HTTPException(status_code=403, detail="Access forbidden to other school data")
 
     if file:
@@ -136,13 +136,13 @@ async def update_school(
     type: str = Form(None),
     logo: UploadFile = File(None),
     db: Session = Depends(get_db),
-    payload: dict = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     # Enforce isolation
-    if payload.get("role") != "superuser":
-        token_school_id = payload.get("school_id")
+    if current_user.role != "superuser":
+        token_school_id = str(current_user.school_id) if current_user.school_id else None
         if token_school_id != school_id:
-            log_forbidden_access(payload.get("sub"), token_school_id, school_id, f"update_school {school_id}")
+            log_forbidden_access(current_user.email, token_school_id, school_id, f"update_school {school_id}")
             raise HTTPException(status_code=403, detail="Access forbidden to other school data")
 
     logo_path = None
@@ -155,6 +155,7 @@ async def update_school(
 async def list_schools(
     request: Request,
     status_filter: str | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -174,7 +175,7 @@ async def list_schools(
     if current_user.role != "superuser" and current_user.role != Roles.SUPER_USER:
         school_id_filter = current_user.school_id
 
-    schools = school_store.list_schools(db, is_active=is_active, school_id=school_id_filter)
+    schools = school_store.list_schools(db, is_active=is_active, school_id=school_id_filter, q=q)
     print("DEBUG API schools: school count:", len(schools))
     
     # Add admin count for each school
@@ -273,11 +274,18 @@ def get_dashboard_counts(
 
     # 2. Recent Notices
     from datetime import datetime, timedelta
+    from communication.models import NoticeAck
     seven_days_ago = datetime.utcnow() - timedelta(days=7)
+
+    # Subquery for notices seen/acked by this user
+    seen_notices_subquery = db.query(NoticeAck.notice_id).filter(
+        NoticeAck.user_id == str(current_user.id)
+    ).subquery()
 
     notices_count = db.query(Notice).filter(
         Notice.school_id == str(current_user.school_id),
-        Notice.created_at >= seven_days_ago
+        Notice.created_at >= seven_days_ago,
+        ~Notice.id.in_(seen_notices_subquery)
     ).count()
 
     # 3. Highest priority of recent notices (for sidebar color)
@@ -288,7 +296,8 @@ def get_dashboard_counts(
         has_priority = db.query(Notice).filter(
             Notice.school_id == str(current_user.school_id),
             Notice.created_at >= seven_days_ago,
-            Notice.priority == priority
+            Notice.priority == priority,
+            ~Notice.id.in_(seen_notices_subquery) # Exclude read notices
         ).first()
         if has_priority:
             highest_priority = priority
@@ -321,7 +330,11 @@ def get_dashboard_summary(
     today = datetime.now(timezone.utc).date()
     
     # Get school info
-    school = db.query(School).filter(School.id == current_user.school_id).first()
+    # Get school info
+    # Ensure ID is UUID object for the query, as superuser might have string ID
+    from uuid import UUID
+    school_uuid = UUID(str(current_user.school_id)) if current_user.school_id else None
+    school = db.query(School).filter(School.id == school_uuid).first()
     
     # Base response
     response = {
@@ -504,7 +517,8 @@ async def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.SUPER_USER, Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    query = db.query(User).filter(User.school_id == current_user.school_id)
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    query = db.query(User).filter(User.school_id == target_school_id)
 
     if status == "active":
         query = query.filter(User.is_active == True)
@@ -567,7 +581,8 @@ async def get_user_profile(
     # Enforce school isolation for non-superusers
     query = db.query(User).filter(User.id == user_id)
     if current_user.role not in [Roles.SUPER_USER, "superuser"]:
-        query = query.filter(User.school_id == current_user.school_id)
+        target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+        query = query.filter(User.school_id == target_school_id)
     
     user = query.first()
     if not user:
@@ -609,7 +624,8 @@ async def update_user_roles(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -663,7 +679,8 @@ async def enable_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
     if not user:
          raise HTTPException(status_code=404, detail="User not found")
 
@@ -677,7 +694,8 @@ async def disable_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
     if not user:
          raise HTTPException(status_code=404, detail="User not found")
 
@@ -696,7 +714,8 @@ async def reset_user_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
     if not user:
          raise HTTPException(status_code=404, detail="User not found")
 
@@ -712,7 +731,8 @@ async def delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-     user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+     target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+     user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
      if not user:
          raise HTTPException(status_code=404, detail="User not found")
 
@@ -730,7 +750,8 @@ async def terminate_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
 ):
-    user = db.query(User).filter(User.id == user_id, User.school_id == current_user.school_id).first()
+    target_school_id = UUID(str(current_user.school_id)) if current_user.school_id else None
+    user = db.query(User).filter(User.id == user_id, User.school_id == target_school_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -779,7 +800,8 @@ def list_school_audit_logs(
     limit: int = 50,
     cursor: str = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, "school_admin", Roles.ACCOUNTANT))
+    current_user: User = Depends(require_roles(Roles.SUPER_ADMIN, Roles.PRINCIPAL, "school_admin", Roles.ACCOUNTANT)),
+    tenant: TenantAccess = Depends(TenantAccess)
 ):
     """
     School-scoped Audit Log Viewer with cursor-based pagination.
@@ -791,16 +813,31 @@ def list_school_audit_logs(
     # Cap limit
     limit = min(limit, 100)
     
+    # Resolve School ID (String and UUID)
+    target_school_id_str = str(tenant.school_id)
+    try:
+        target_school_uuid = uuid.UUID(target_school_id_str)
+    except:
+        target_school_uuid = None
+        
     # Get all users in this school for filtering
-    school_users = db.query(User).filter(User.school_id == current_user.school_id).all()
-    school_user_ids = [str(u.id) for u in school_users]
-    user_name_map = {str(u.id): f"{u.first_name} {u.last_name}" for u in school_users}
+    # Safe query: if uuid matches
+    if target_school_uuid:
+        school_users = db.query(User).filter(User.school_id == target_school_uuid).all()
+        school_user_ids = [str(u.id) for u in school_users]
+        user_name_map = {str(u.id): f"{u.first_name} {u.last_name}" for u in school_users}
+    else:
+        school_users = []
+        school_user_ids = []
+        user_name_map = {}
     
     # Base query
+    # Include logs where school_id is set (new/fixed behaviour) OR actor matches (legacy)
     query = db.query(AuditLog).filter(
         or_(
+            AuditLog.school_id == target_school_id_str,
             AuditLog.actor_id.in_(school_user_ids),
-            AuditLog.actor_id.is_(None)
+            # Keep null actor check if needed, but risky if not scoped
         )
     )
     
@@ -890,8 +927,9 @@ def get_staff_directory(
     """
     List staff members for complaint selection.
     """
+    target_school_id = UUID(str(user.school_id)) if user.school_id else None
     return db.query(User).filter(
-        User.school_id == user.school_id,
+        User.school_id == target_school_id,
         User.role.in_([Roles.TEACHER, Roles.PRINCIPAL, "school_admin", Roles.SECURITY_GUARD, Roles.SUPER_ADMIN, Roles.ACCOUNTANT])
     ).all()
 

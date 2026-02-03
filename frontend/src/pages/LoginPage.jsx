@@ -28,9 +28,9 @@ const LoginPage = () => {
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (detail) {
-          toast.error(detail);
+        toast.error(detail);
       } else {
-          toast.error("Invalid credentials.");
+        toast.error("Invalid credentials.");
       }
     } finally {
       setLoading(false);
@@ -41,41 +41,41 @@ const LoginPage = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-blue-900">Nepsis Portal</CardTitle>
+          <CardTitle className="text-2xl font-bold text-blue-900">SISsphere Portal</CardTitle>
           <p className="text-sm text-muted-foreground">Sign in to your account</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-                <label className="text-sm font-medium">Email</label>
-                <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    placeholder="user@school.com"
-                />
+              <label className="text-sm font-medium">Email</label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="user@school.com"
+              />
             </div>
             <div className="space-y-2">
-                <label className="text-sm font-medium">Password</label>
-                <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                />
+              <label className="text-sm font-medium">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Signing In...' : 'Sign In'}
+              {loading ? 'Signing In...' : 'Sign In'}
             </Button>
           </form>
 
           <div className="mt-6 flex flex-col items-center gap-3">
             <Link to="/find-school" className="text-sm text-blue-600 hover:underline">
-                Find Your School
+              Find Your School
             </Link>
             <Link to="/admin/login" className="text-xs text-gray-400 hover:text-gray-600">
-                Admin Login
+              Admin Login
             </Link>
           </div>
         </CardContent>

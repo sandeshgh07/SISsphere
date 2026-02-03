@@ -53,10 +53,10 @@ const BoardExecutiveDashboard = () => {
         loadData();
     }, []);
 
-    if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-nepsis-primary" /></div>;
+    if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-sissphere-primary" /></div>;
 
     const kpiCard = (title, value, subtitle, icon, status = "neutral") => (
-        <Card className="shadow-sm border-l-4 border-l-nepsis-primary">
+        <Card className="shadow-sm border-l-4 border-l-sissphere-primary">
             <CardContent className="p-4 flex justify-between items-start">
                 <div>
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{title}</p>

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { TrendingUp, TrendingDown, Minus, Wallet, GraduationCap, Calendar, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
-export const StatCard = ({ title, value, subtext, trend, icon: Icon, colorClass = "text-nepsis-primary" }) => {
+export const StatCard = ({ title, value, subtext, trend, icon: Icon, colorClass = "text-sissphere-primary" }) => {
     return (
         <Card>
             <CardContent className="p-6">
@@ -99,7 +99,7 @@ export const AcademicGraph = ({ data }) => {
 };
 
 const SelectPeriod = () => (
-    <select className="text-sm border border-gray-200 rounded-md px-2 py-1 bg-white outline-none focus:border-nepsis-primary">
+    <select className="text-sm border border-gray-200 rounded-md px-2 py-1 bg-white outline-none focus:border-sissphere-primary">
         <option>Semester 1</option>
         <option>Semester 2</option>
     </select>

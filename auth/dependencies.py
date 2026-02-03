@@ -69,7 +69,7 @@ def get_current_user(
             id="superuser",
             email=username,
             role=Roles.SUPER_USER,
-            school_id="system", # Or None, but schema might require string
+            school_id="00000000-0000-0000-0000-000000000000", # Using Nil UUID to satisfy Uuid type constraints while ensuring it matches no real school
             is_active=True
         )
         set_actor_id("superuser")

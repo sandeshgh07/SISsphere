@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from database import get_db
 from schools.models import User
+from schools import models as school_models
 from auth.dependencies import get_current_active_user, Roles
 from finance import models as fin_models
 from students import models as stu_models

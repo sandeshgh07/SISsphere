@@ -46,12 +46,12 @@ const FinanceOverviewDashboard = () => {
             </div>
 
             <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="bg-slate-200">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    {user?.role === 'superuser' && (
+                {user?.role === 'superuser' && (
+                    <TabsList className="bg-slate-200">
+                        <TabsTrigger value="overview">Overview</TabsTrigger>
                         <TabsTrigger value="governance">Board Management</TabsTrigger>
-                    )}
-                </TabsList>
+                    </TabsList>
+                )}
 
                 <TabsContent value="overview" className="space-y-8 mt-6">
                     {/* 1. Triple Pulse Header */}

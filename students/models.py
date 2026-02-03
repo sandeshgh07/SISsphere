@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, ForeignKey, DateTime, Boolean, Index, Enum, JSON, Integer
+from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime, timezone
 import uuid
@@ -21,6 +22,7 @@ class Student(Base):
 
     # Linked grade, section, academic year
     grade_id = Column(String, ForeignKey("grades.id"), nullable=True)
+    grade = relationship("Grade")
     section_id = Column(String, ForeignKey("sections.id"), nullable=True)
     academic_year_id = Column(String, ForeignKey("academic_years.id"), nullable=True)
 

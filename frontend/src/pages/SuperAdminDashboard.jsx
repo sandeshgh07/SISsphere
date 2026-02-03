@@ -206,7 +206,7 @@ function SuperAdminDashboard() {
   const loadAuditLogs = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const res = await axios.get(`${API_BASE}/api/audit-logs/platform?limit=100`, { headers });
+      const res = await axios.get(`${API_BASE}/api/audit/platform?limit=100`, { headers });
       setAuditLogs(res.data || []);
     } catch (e) {
       console.error("[SuperAdmin] Failed to load audit logs:", e);
@@ -224,7 +224,7 @@ function SuperAdminDashboard() {
     if (!accessToken) return;
     setContactRequestsLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/api/admin/contact-requests`, { headers });
+      const res = await axios.get(`${API_BASE}/api/communication/admin/contact-requests`, { headers });
       setContactRequests(res.data || []);
     } catch (e) {
       console.error("[SuperAdmin] Failed to load contact requests:", e);
@@ -242,7 +242,7 @@ function SuperAdminDashboard() {
   // Handle contact request status update
   const updateContactStatus = async (requestId, newStatus) => {
     try {
-      await axios.patch(`${API_BASE}/api/admin/contact-requests/${requestId}`,
+      await axios.patch(`${API_BASE}/api/communication/admin/contact-requests/${requestId}`,
         { status: newStatus },
         { headers }
       );
@@ -259,7 +259,7 @@ function SuperAdminDashboard() {
     setReplyModal(prev => ({ ...prev, sending: true }));
     try {
       await axios.post(
-        `${API_BASE}/api/admin/contact-requests/${replyModal.request.id}/reply`,
+        `${API_BASE}/api/communication/admin/contact-requests/${replyModal.request.id}/reply`,
         { message: replyModal.message },
         { headers }
       );
@@ -776,23 +776,33 @@ function SuperAdminDashboard() {
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {auditLogs.map((log, idx) => (
                     <div key={log.id || idx} className="flex items-start gap-3 p-3 bg-slate-800 rounded-lg">
-                      <div className={`p-1.5 rounded-full ${log.action?.includes('DELETED') ? 'bg-red-900/50 text-red-400' :
-                        log.action?.includes('RESTORED') ? 'bg-green-900/50 text-green-400' :
-                          'bg-purple-900/50 text-purple-400'
+                      <div className={`p-1.5 rounded-full ${log.action_type?.includes('DELETE') ? 'bg-red-900/50 text-red-400' :
+                          log.action_type?.includes('UPDATE') ? 'bg-blue-900/50 text-blue-400' :
+                            log.action_type?.includes('REPLY') ? 'bg-amber-900/50 text-amber-400' :
+                              log.action_type?.includes('CREATE') || log.action_type?.includes('INSERT') ? 'bg-green-900/50 text-green-400' :
+                                'bg-purple-900/50 text-purple-400'
                         }`}>
-                        {log.action?.includes('DELETED') ? <Trash2 className="h-3 w-3" /> :
-                          log.action?.includes('RESTORED') ? <RotateCcw className="h-3 w-3" /> :
-                            <FileText className="h-3 w-3" />}
+                        {log.action_type?.includes('DELETE') ? <Trash2 className="h-3 w-3" /> :
+                          log.action_type?.includes('UPDATE') ? <RotateCcw className="h-3 w-3" /> : // Or Edit icon
+                            log.action_type?.includes('REPLY') ? <Send className="h-3 w-3" /> :
+                              log.action_type?.includes('create') ? <UserPlus className="h-3 w-3" /> :
+                                <FileText className="h-3 w-3" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-slate-200">{log.action}</span>
-                          <span className="text-xs text-slate-500">
-                            {log.details?.school_name && `• ${log.details.school_name}`}
+                          <span className="text-sm font-medium text-slate-200">
+                            {log.action_type}
+                            {log.table_name && <span className="text-slate-500 text-xs ml-2 font-mono">({log.table_name})</span>}
                           </span>
                         </div>
+                        {log.reason && (
+                          <div className="text-sm text-slate-300 mt-0.5">
+                            {log.reason}
+                          </div>
+                        )}
                         <div className="text-xs text-slate-400 mt-0.5">
-                          By: {log.details?.deleted_by || log.details?.restored_by || log.details?.executed_by?.email || 'Unknown'}
+                          By: {log.actor_id || 'Unknown'}
+                          {log.trace_id && <span className="ml-2 font-mono text-[10px] opacity-60">ID: {log.trace_id.slice(0, 8)}</span>}
                           {log.timestamp && ` • ${new Date(log.timestamp).toLocaleString()}`}
                         </div>
                       </div>

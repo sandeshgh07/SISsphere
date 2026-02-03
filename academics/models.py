@@ -425,16 +425,19 @@ class TeachingAssignment(Base):
     
     teacher_user_id = Column(String, ForeignKey("users.id"), nullable=False)
     grade_id = Column(String, ForeignKey("grades.id"), nullable=False)
-    section_id = Column(String, ForeignKey("sections.id"), nullable=True)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=False) # Made required as per plan A3 "Section (dropdown) — required (for now)"
     
-    grade_subject_id = Column(String, ForeignKey("grade_subjects.id"), nullable=True) # Preferred
-    # Note: grade_subject_id implies grade and academic_year, but we store explicit for queries
+    subject_id = Column(String, ForeignKey("subjects.id"), nullable=False) # New required field
+    is_class_teacher = Column(Boolean, default=False) # New field
+
+    grade_subject_id = Column(String, ForeignKey("grade_subjects.id"), nullable=True) # Kept for compatibility but nullable
     
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index("idx_teaching_assignments_teacher", "school_id", "academic_year_id", "teacher_user_id"),
-        UniqueConstraint('school_id', 'academic_year_id', 'teacher_user_id', 'grade_id', 'section_id', 'grade_subject_id', name='uq_teaching_assignment_complex')
+        UniqueConstraint('school_id', 'academic_year_id', 'teacher_user_id', 'grade_id', 'section_id', 'subject_id', name='uq_teaching_assignment_v2')
     )
 
 class BaseModel(Base):

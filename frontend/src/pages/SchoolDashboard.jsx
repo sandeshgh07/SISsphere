@@ -241,7 +241,7 @@ function Overview() {
     if (!accessToken) return;
     const loadCritical = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/notices`, {
+        const res = await axios.get(`${API_BASE}/api/communication/notices`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         const all = Array.isArray(res.data) ? res.data : [];
@@ -251,6 +251,7 @@ function Overview() {
           // Active Check (Server does filtering for non-admins, but admins get all. We must double check for banner.)
           if (n.expires_at && new Date(n.expires_at) <= now) return false;
           if (n.scheduled_at && new Date(n.scheduled_at) > now) return false;
+          if (n.is_acknowledged) return false; // Hide acknowledged critical notices from banner
           return true;
         });
         setCriticalNotices(filtered);
@@ -497,6 +498,8 @@ function SchoolDashboard() {
   const [switching, setSwitching] = useState(false);
   const [schoolInfo, setSchoolInfo] = useState(null);
   const [schoolLoading, setSchoolLoading] = useState(true);
+  const [unackedCriticalCount, setUnackedCriticalCount] = useState(0);
+  const [criticalComplaintCount, setCriticalComplaintCount] = useState(0);
 
   const effectiveRole = getEffectiveRole();
 
@@ -542,8 +545,51 @@ function SchoolDashboard() {
   useEffect(() => {
     if (isHydrated && accessToken && user?.school_id) {
       fetchSchoolInfo();
+      fetchDashboardAlerts();
     }
-  }, [isHydrated, accessToken, user?.school_id, fetchSchoolInfo]);
+  }, [isHydrated, accessToken, user?.school_id, fetchSchoolInfo, location.pathname]);
+
+  // Global Check for Critical Items (Notices & Complaints)
+  const fetchDashboardAlerts = async () => {
+    if (!accessToken) return;
+    try {
+      // 1. Critical Notices
+      const noticesRes = await axios.get(`${API_BASE}/api/communication/notices`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const allNotices = Array.isArray(noticesRes.data) ? noticesRes.data : [];
+      const now = new Date();
+
+      const nCount = allNotices.filter(n => {
+        if (n.priority !== "CRITICAL") return false;
+        if (n.expires_at && new Date(n.expires_at) <= now) return false;
+        if (n.scheduled_at && new Date(n.scheduled_at) > now) return false;
+        if (n.is_acknowledged) return false;
+        return true;
+      }).length;
+
+      setUnackedCriticalCount(nCount);
+
+      // 2. Critical Complaints
+      // Only fetch if user has access (principal, admin, teacher, usually) to avoid unnecessary 403s
+      if (["principal", "super_admin", "school_admin", "teacher"].includes(effectiveRole)) {
+        const complaintsRes = await axios.get(`${API_BASE}/api/communication/complaints`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const allComplaints = Array.isArray(complaintsRes.data) ? complaintsRes.data : [];
+
+        const cCount = allComplaints.filter(c => {
+          if (c.priority !== "CRITICAL") return false;
+          if (["RESOLVED", "CLOSED"].includes(c.status)) return false;
+          return true;
+        }).length;
+        setCriticalComplaintCount(cCount);
+      }
+
+    } catch (e) {
+      console.error("Failed to fetch dashboard alerts", e);
+    }
+  };
 
   // Handle role switch
   const handleRoleSwitch = async (newRole) => {
@@ -572,7 +618,7 @@ function SchoolDashboard() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex">
       {/* Sidebar */}
-      <aside className="w-60 border-r border-slate-800 bg-nepsis-primary px-4 py-6 space-y-2 flex-shrink-0">
+      <aside className="w-60 border-r border-slate-800 bg-sissphere-primary px-4 py-6 space-y-2 flex-shrink-0">
         {/* School Branding - Logo + Name */}
         <div className="mb-6 pb-4 border-b border-white/10">
           {schoolLoading ? (
@@ -606,18 +652,46 @@ function SchoolDashboard() {
         </div>
 
         <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">Navigation</div>
-        {sidebarItems.map(([path, config]) => (
-          <NavLink
-            key={config.id}
-            to={`/school/${path}`}
-            className={({ isActive }) =>
-              `block px-3 py-2 rounded-full text-sm ${isActive ? "bg-white/10 text-white font-medium" : "text-gray-300 hover:bg-white/5"
-              }`
-            }
-          >
-            {config.title}
-          </NavLink>
-        ))}
+        {sidebarItems.map(([path, config]) => {
+          // Alert Logic
+          let hasAlert = false;
+          let alertColor = "";
+
+          if (path === "notices" && unackedCriticalCount > 0) {
+            hasAlert = true;
+            alertColor = "bg-red-800 text-white border-l-4 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]";
+          }
+
+          if (path === "complaints" && criticalComplaintCount > 0) {
+            hasAlert = true;
+            alertColor = "bg-red-800 text-white border-l-4 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]";
+          }
+
+          return (
+            <NavLink
+              key={config.id}
+              to={`/school/${path}`}
+              className={({ isActive }) =>
+                `block px-3 py-2 rounded-r-full text-sm mb-1 transition-all ${hasAlert
+                  ? `${alertColor} font-semibold animate-pulse`
+                  : isActive
+                    ? "bg-white/10 text-white font-medium"
+                    : "text-gray-300 hover:bg-white/5"
+                }`
+              }
+            >
+              <div className="flex items-center justify-between">
+                <span>{config.title}</span>
+                {hasAlert && path === "notices" && (
+                  <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{unackedCriticalCount}</span>
+                )}
+                {hasAlert && path === "complaints" && (
+                  <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{criticalComplaintCount}</span>
+                )}
+              </div>
+            </NavLink>
+          );
+        })}
       </aside>
 
       {/* Main Content */}
@@ -639,7 +713,7 @@ function SchoolDashboard() {
                       }}
                     />
                   ) : (
-                    <Building2 className="h-5 w-5 text-nepsis-primary" />
+                    <Building2 className="h-5 w-5 text-sissphere-primary" />
                   )}
                   <span className="text-sm font-medium text-slate-200">{schoolInfo.name}</span>
                 </div>

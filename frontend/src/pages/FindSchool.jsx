@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,15 @@ const FindSchool = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const query = params.get('query');
+    if (query) {
+      setSearchTerm(query);
+    }
+  }, [location]);
 
   useEffect(() => {
     const fetchSchools = async () => {
@@ -60,44 +69,44 @@ const FindSchool = () => {
         </div>
 
         {loading ? (
-            <div className="text-center py-12 text-slate-500">Loading schools...</div>
+          <div className="text-center py-12 text-slate-500">Loading schools...</div>
         ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredSchools.map((school) => (
-                <Card
-                    key={school.id}
-                    className="cursor-pointer hover:shadow-lg transition-all border-slate-200 hover:border-blue-300 group"
-                    onClick={() => handleSelectSchool(school.slug)}
-                >
+              <Card
+                key={school.id}
+                className="cursor-pointer hover:shadow-lg transition-all border-slate-200 hover:border-blue-300 group"
+                onClick={() => handleSelectSchool(school.slug)}
+              >
                 <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                        {school.logo_url ? (
-                            <img src={school.logo_url} alt={school.name} className="w-10 h-10 object-contain" />
-                        ) : (
-                            <SchoolIcon className="w-8 h-8 text-blue-600" />
-                        )}
-                    </div>
-                    <div>
-                        <h3 className="font-semibold text-lg text-slate-900">{school.name}</h3>
-                        <p className="text-sm text-slate-500 uppercase tracking-wider font-medium">{school.slug}</p>
-                    </div>
+                  <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                    {school.logo_url ? (
+                      <img src={school.logo_url} alt={school.name} className="w-10 h-10 object-contain" />
+                    ) : (
+                      <SchoolIcon className="w-8 h-8 text-blue-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg text-slate-900">{school.name}</h3>
+                    <p className="text-sm text-slate-500 uppercase tracking-wider font-medium">{school.slug}</p>
+                  </div>
                 </CardContent>
-                </Card>
+              </Card>
             ))}
 
             {filteredSchools.length === 0 && (
-                <div className="col-span-full text-center py-12 text-slate-500">
-                    No schools found matching "{searchTerm}"
-                </div>
+              <div className="col-span-full text-center py-12 text-slate-500">
+                No schools found matching "{searchTerm}"
+              </div>
             )}
-            </div>
+          </div>
         )}
 
         <div className="text-center pt-8 border-t border-slate-200 mt-12">
-            <p className="text-slate-500 mb-4">Are you a Super Admin?</p>
-            <Button variant="outline" onClick={() => navigate('/admin/login')}>
-                Admin Login
-            </Button>
+          <p className="text-slate-500 mb-4">Are you a Super Admin?</p>
+          <Button variant="outline" onClick={() => navigate('/admin/login')}>
+            Admin Login
+          </Button>
         </div>
       </div>
     </div>

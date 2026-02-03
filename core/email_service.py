@@ -223,14 +223,14 @@ class EmailService:
                 </div>
             </div>
             <div style="background: #333; color: #999; padding: 15px; text-align: center; font-size: 12px;">
-                Classa Enterprise Platform | <a href="mailto:{settings.contact_notification_email}" style="color: #5C2438;">Reply from Dashboard</a>
+                SISsphere Systems Inc. | <a href="mailto:{settings.contact_notification_email}" style="color: #5C2438;">Reply from Dashboard</a>
             </div>
         </div>
         """
         
         self.send_email(
             to_email=settings.contact_notification_email,
-            subject=f"[Classa Contact] {subject}",
+            subject=f"[SISsphere Contact] {subject}",
             html_content=html_content
         )
     
@@ -245,18 +245,18 @@ class EmailService:
         html_content = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #003333; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">Classa Enterprise</h1>
+                <h1 style="margin: 0;">SISsphere</h1>
             </div>
             <div style="padding: 30px; background: #f9f9f9;">
                 <p>Dear {name},</p>
-                <p>Thank you for contacting Classa Enterprise.</p>
+                <p>Thank you for contacting SISsphere.</p>
                 <div style="background: white; padding: 20px; border-left: 4px solid #5C2438; margin: 20px 0;">
                     {reply_message}
                 </div>
-                <p>Best regards,<br>The Classa Team</p>
+                <p>Best regards,<br>The SISsphere Team</p>
             </div>
             <div style="background: #333; color: #999; padding: 15px; text-align: center; font-size: 12px;">
-                © 2026 Classa Enterprise. All rights reserved.<br>
+                © 2026 SISsphere Systems Inc. All rights reserved.<br>
                 📧 sandeshgh07@gmail.com | 📞 +1 (647) 745-2035
             </div>
         </div>
@@ -264,7 +264,7 @@ class EmailService:
         
         self.send_email(
             to_email=to_email,
-            subject=f"Re: {original_subject} - Classa Enterprise",
+            subject=f"Re: {original_subject} - SISsphere",
             html_content=html_content
         )
 

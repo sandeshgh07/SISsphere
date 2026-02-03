@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --color-nepsis-primary: #003333;
-  --color-nepsis-alert: #5C2438;
+  --color-sissphere-primary: #003333;
+  --color-sissphere-alert: #5C2438;
 
   /* Retain existing if needed, though they look like shadcn vars which might need mapping */
   --color-background: 222 47% 11%;
@@ -44,4 +44,23 @@
 
 body {
   @apply bg-white text-gray-900;
+}
+
+/* Force opaque backgrounds to fix system-wide transparency issues */
+@layer utilities {
+  .bg-background {
+    background-color: hsl(var(--background)) !important;
+  }
+
+  .bg-popover {
+    background-color: hsl(var(--popover)) !important;
+  }
+
+  .bg-card {
+    background-color: hsl(var(--card)) !important;
+  }
+
+  .bg-white {
+    background-color: white !important;
+  }
 }

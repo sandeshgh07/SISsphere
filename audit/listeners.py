@@ -78,12 +78,18 @@ def _audit(connection, target, action):
     import uuid
     log_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc)
+    
+    # Try to extract school_id from target
+    school_id = getattr(target, 'school_id', None)
+    if school_id:
+        school_id = str(school_id)
 
     audit_table = AuditLog.__table__
     connection.execute(
         audit_table.insert().values(
             id=log_id,
-            actor_id=str(actor_id) if actor_id else None,
+            school_id=school_id,
+            actor_id=str(actor_id).replace('-', '') if actor_id else None,
             action_type=action,
             table_name=target.__tablename__,
             record_id=str(target.id) if hasattr(target, 'id') else None,
@@ -97,7 +103,12 @@ def _audit(connection, target, action):
     )
 
 def setup_audit_listeners(Base):
+    print("DEBUG: Setting up audit listeners for models:")
+    count = 0
     for mapper in Base.registry.mappers:
+        print(f" - {mapper.class_.__name__}")
         event.listen(mapper, 'after_insert', audit_insert)
         event.listen(mapper, 'after_update', audit_update)
         event.listen(mapper, 'after_delete', audit_delete)
+        count += 1
+    print(f"DEBUG: Registered listeners for {count} models")

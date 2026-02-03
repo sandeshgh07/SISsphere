@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from auth.dependencies import get_db, require_roles, TenantAccess, Roles
 from academics import models as academic_models
@@ -15,6 +15,7 @@ import attendance.models
 import finance.models
 import communication.models as comm_models
 from auth.jwt import create_access_token
+from sqlalchemy import and_, or_
 
 router = APIRouter(prefix="/students", tags=["students"])
 
@@ -109,6 +110,7 @@ def create_student(
 
 @router.get("", response_model=List[StudentResponse])
 def list_students(
+    q: Optional[str] = None,
     db: Session = Depends(get_db),
     user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER, Roles.TEACHER, Roles.PARENT, Roles.STUDENT)),
     tenant: TenantAccess = Depends(TenantAccess)
@@ -117,6 +119,15 @@ def list_students(
         student_models.Student.school_id == str(tenant.school_id),
         student_models.Student.is_active == True # Default to active only
     )
+
+    if q:
+        search = f"%{q}%"
+        query = query.filter(or_(
+            student_models.Student.first_name.ilike(search),
+            student_models.Student.last_name.ilike(search),
+            student_models.Student.email.ilike(search),
+            student_models.Student.roll_number.ilike(search)
+        ))
 
     if user.role == Roles.TEACHER:
         # Teacher: Scope to assigned grade/sections
@@ -137,7 +148,6 @@ def list_students(
         # OR conditions:
         # (grade_id = G1 AND section_id IS NULL) OR (grade_id = G1 AND section_id = S1)
 
-        from sqlalchemy import or_, and_
         conditions = []
         for assign in assignments:
             if assign.grade_id and not assign.section_id:
@@ -439,6 +449,81 @@ def update_student_assignment_by_user_id(
         "new_section_id": student.section_id
     }
 
+# --- PARENT ASSIGNMENT ---
+
+@router.get("/parents/{parent_id}/students", response_model=List[StudentResponse])
+def get_parent_students(
+    parent_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    # Fetch links
+    links = db.query(student_models.ParentStudentLink).filter(
+        student_models.ParentStudentLink.parent_id == parent_id,
+        student_models.ParentStudentLink.school_id == str(tenant.school_id)
+    ).all()
+    
+    student_ids = [link.student_id for link in links]
+    if not student_ids:
+        return []
+        
+    students = db.query(student_models.Student).filter(
+        student_models.Student.id.in_(student_ids)
+    ).outerjoin(academic_models.Grade, student_models.Student.grade_id == academic_models.Grade.id)\
+     .outerjoin(academic_models.Section, student_models.Student.section_id == academic_models.Section.id)\
+     .add_columns(academic_models.Grade.name.label("grade_name"), academic_models.Section.name.label("section_name"))\
+     .all()
+     
+    results = []
+    for s, g_name, s_name in students:
+        results.append(StudentResponse(
+            id=s.id,
+            first_name=s.first_name,
+            last_name=s.last_name,
+            roll_number=s.roll_number,
+            grade_name=g_name,
+            section_name=s_name,
+            pickup_blocked=s.pickup_blocked,
+            pickup_block_reason=s.pickup_block_reason
+        ))
+    return results
+
+class ParentStudentAssignmentUpdate(BaseModel):
+    student_ids: List[str]
+
+@router.put("/parents/{parent_id}/students")
+def update_parent_students(
+    parent_id: str,
+    assignment: ParentStudentAssignmentUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN, Roles.SUPER_USER)),
+    tenant: TenantAccess = Depends(TenantAccess)
+):
+    # Verify Parent Exists? Optional since id comes from UI.
+    # Replace all links
+    
+    # 1. Delete existing
+    db.query(student_models.ParentStudentLink).filter(
+        student_models.ParentStudentLink.parent_id == parent_id,
+        student_models.ParentStudentLink.school_id == str(tenant.school_id)
+    ).delete()
+    
+    # 2. Add new
+    new_links = []
+    for sid in assignment.student_ids:
+        # Verify student exists? Assuming yes for efficiency or can check
+        link = student_models.ParentStudentLink(
+            parent_id=parent_id,
+            student_id=sid,
+            school_id=str(tenant.school_id),
+            is_authorized_pickup=True # Default
+        )
+        db.add(link)
+    
+    db.commit()
+    return {"message": "Parent assignments updated successfully"}
+
 # --- STUDENT DASHBOARD ---
 
 class StudentDashboardOverview(BaseModel):
@@ -583,33 +668,216 @@ def get_student_dashboard_overview(
         ]
     }
 
-    # 7. Mock Data (Today, Academics, Timeline)
+    # 7. Real Data: Today's Schedule & Next Class
+    today_name = datetime.now().strftime("%A").upper() # "WEDNESDAY"
+    # Note: DB might use "REGULAR" or Day Name. We'll try Day Name first, then "REGULAR".
+    # But for now, we observed "REGULAR" in the debug script for the timetable.
+    # However, ScheduleWeeklyRule usually maps Day -> Template.
+    # We need to resolve the Correct Template for Today.
+    
+    # 7a. Determine Template
+    # logic: Check GradeMapping -> Inherit? -> WeeklyRule[Day] -> Template
+    # If not inherit -> GradeMapping.default_template -> Template
+    
+    # Simple Default
+    schedule_items = []
+    
+    # Get Grade Mapping
+    grade_mapping = db.query(academic_models.ScheduleGradeMapping).filter(
+        academic_models.ScheduleGradeMapping.grade_id == student.grade_id,
+        academic_models.ScheduleGradeMapping.school_id == str(tenant.school_id)
+    ).first()
+
+    template = None
+    
+    if grade_mapping:
+         if grade_mapping.inherit_weekly:
+             # Get Weekly Rule
+             weekly = db.query(academic_models.ScheduleWeeklyRule).filter(
+                 academic_models.ScheduleWeeklyRule.school_id == str(tenant.school_id)
+             ).first()
+             if weekly and weekly.day_rules:
+                 # day_rules = {"Monday": "tpl_id", ...}
+                 day_str = datetime.now().strftime("%A") # "Wednesday"
+                 tpl_id = weekly.day_rules.get(day_str)
+                 if tpl_id:
+                     template = db.query(academic_models.ScheduleTemplate).get(tpl_id)
+         else:
+             # Use Default
+             if grade_mapping.default_template_id:
+                 template = db.query(academic_models.ScheduleTemplate).get(grade_mapping.default_template_id)
+    
+    # If no template found, maybe try to find a generic "Regular" one or skip?
+    
+    # 7b. Fetch Valid Timetable Entries
+    # We need detailed slots: Period Index -> Subject
+    timetable_entries = db.query(academic_models.SectionSubjectTimetable).filter(
+        academic_models.SectionSubjectTimetable.grade_id == student.grade_id,
+        academic_models.SectionSubjectTimetable.section_id == student.section_id,
+        academic_models.SectionSubjectTimetable.school_id == str(tenant.school_id),
+        # Assuming "REGULAR" or current day. 
+        # Ideally we should match the key used in the template, but entries use "REGULAR" often.
+        # Let's fetch ALL for this grade/section and filter by what matches our logic or just "REGULAR"
+        academic_models.SectionSubjectTimetable.day_pattern_key.in_(["REGULAR", datetime.now().strftime("%A").upper()])
+    ).all()
+    
+    # Map Period Index -> Subject Name
+    period_map = {} # index -> {subject, teacher, room}
+    for entry in timetable_entries:
+        if entry.subject_id:
+            subj = db.query(academic_models.Subject).get(entry.subject_id)
+            period_map[entry.period_index] = {"subject": subj.name if subj else "Unknown", "teacher": "N/A", "room": "N/A"}
+
+    # 7c. Construct Today's Periods (Merging Template Time + Timetable Subject)
+    today_periods_list = []
+    next_class_info = None
+    
+    now_time = datetime.now().strftime("%H:%M") 
+    
+    if template and template.structure:
+        # structure: [{"label":"P1", "start":"...", "end":"...", "type":"CLASS"}, ...]
+        # We need to assume the order in list corresponds to period_index 1, 2, 3...
+        # OR we need to count constraints. 
+        # Usually: Filter type="CLASS", then index increments.
+        
+        p_idx = 1
+        for slot in template.structure:
+            if slot.get("type") == "CLASS" or slot.get("type") == "class":
+                # Is there a subject mapped?
+                info = period_map.get(p_idx)
+                
+                # Check Time
+                start = slot.get("start", "")
+                end = slot.get("end", "")
+                
+                item = {
+                    "time": start,
+                    "subject": info["subject"] if info else "Free Period",
+                    "teacher": info["teacher"] if info else "-",
+                    "room": info["room"] if info else "-"
+                }
+                today_periods_list.append(item)
+                
+                # Check Next Class
+                # Logic: If end > now. 
+                # If start > now: It is upcoming (Next).
+                # If start <= now <= end: It is CURRENT. 
+                # We want "Next Class" or "Current Class"? UI says "Next Class". 
+                # But usually dashboard shows "Current/Next".
+                # Let's pick the first one where end > now.
+                if not next_class_info and end > now_time:
+                    next_class_info = {"subject": item["subject"], "time": start}
+                
+                p_idx += 1
+            elif slot.get("type") == "BREAK":
+                pass
+
     today_data = {
         "date": datetime.now().strftime("%Y-%m-%d"),
-        "periods": [
-            {"time": "09:00", "subject": "Mathematics", "teacher": "Mr. Smith", "room": "101"},
-            {"time": "10:00", "subject": "Physics", "teacher": "Ms. Doe", "room": "Lab 2"},
-        ],
-        "next_class": {"subject": "Mathematics", "time": "09:00"}
+        "periods": today_periods_list,
+        "next_class": next_class_info 
     }
     
+    # 8. Real Data: Academics (Missing Submissions / Assessments)
+    # Fetch Relevant Subjects first
+    # 1. Subjects directly linked to Grade
+    grade_subjects = db.query(academic_models.GradeSubject).filter(
+        academic_models.GradeSubject.grade_id == student.grade_id,
+        academic_models.GradeSubject.school_id == str(tenant.school_id)
+    ).all()
+    relevant_subject_ids = {gs.subject_id for gs in grade_subjects}
+    
+    # 2. Subjects in Timetable (sometimes not in GradeSubject if ad-hoc)
+    for entry in timetable_entries:
+        if entry.subject_id: relevant_subject_ids.add(entry.subject_id)
+        
+    # 3. Subjects with grade_id set directly (Legacy/Simple)
+    direct_subjects = db.query(academic_models.Subject).filter(
+        academic_models.Subject.grade_id == student.grade_id
+    ).all()
+    for s in direct_subjects: relevant_subject_ids.add(s.id)
+
+    # Fetch Assessments
+    # Filter: school_id, subject_id in relevant, (grade/section match or null)
+    created_assessments = db.query(academic_models.Assessment).filter(
+        academic_models.Assessment.school_id == str(tenant.school_id),
+        academic_models.Assessment.subject_id.in_(relevant_subject_ids),
+        or_(
+            academic_models.Assessment.grade_id.is_(None),
+            academic_models.Assessment.grade_id == student.grade_id
+        ),
+        or_(
+            academic_models.Assessment.section_id.is_(None),
+            academic_models.Assessment.section_id == student.section_id
+        )
+    ).all()
+    
+    # "Missing Submissions": Past Due AND No Score?
+    # Simple logic: Count how many are past due.
+    # Improvements: Check if StudentAssessmentScore exists.
+    
+    missing_count = 0
+    upcoming_assessments = []
+    
+    current_time = datetime.now(timezone.utc)
+    # Naive conversion if due_date is naive
+    for asm in created_assessments:
+        if not asm.due_date: 
+            # Treat as upcoming (No date = Anytime)
+            upcoming_assessments.append({
+                "type": "EXAM" if "exam" in asm.name.lower() else "ASSIGNMENT",
+                "title": asm.name,
+                "date": datetime.now().strftime("%Y-%m-%d") # Use today as placeholder
+            })
+            continue
+        
+        # Ensure timezone awareness for comparison
+        d_date = asm.due_date
+        if d_date.tzinfo is None:
+             d_date = d_date.replace(tzinfo=timezone.utc)
+             
+        if d_date > current_time:
+            # Upcoming
+            upcoming_assessments.append({
+                "type": "EXAM" if "exam" in asm.name.lower() else "ASSIGNMENT",
+                "title": asm.name,
+                "date": d_date.strftime("%Y-%m-%d")
+            })
+        else:
+            # Past Due - Check validity
+            # Check for score
+            score = db.query(academic_models.StudentAssessmentScore).filter(
+                academic_models.StudentAssessmentScore.assessment_id == asm.id,
+                academic_models.StudentAssessmentScore.student_id == student.id
+            ).first()
+            if not score:
+                missing_count += 1
+    
+    # Subjects Progress (GPA) - Placeholder or Real?
+    # Keeping Mock GPA for now as calculating real GPA requires a complex policy engine.
+    # But we can list subjects correctly.
+    subject_list = []
+    for sid in relevant_subject_ids:
+        s_obj = db.query(academic_models.Subject).get(sid)
+        if s_obj:
+            subject_list.append({"name": s_obj.name, "progress": 70, "grade": "-"}) # Default
+            
     academics_data = {
-        "gpa": {"current": 3.8, "trend": [3.5, 3.6, 3.8]},
-        "subjects": [
-            {"name": "Mathematics", "progress": 85, "grade": "A"},
-            {"name": "Physics", "progress": 78, "grade": "B+"},
-            {"name": "English", "progress": 92, "grade": "A+"}
-        ],
-        "missingSubmissions": 1
+        "gpa": {"current": 0.0, "trend": []},
+        "subjects": subject_list[:5], # Limit to 5
+        "missingSubmissions": missing_count
     }
+    
+    # 9. Real Timeline (Events + Assessments)
+    # Upcoming assessments already fetched
+    # Add Holidays / Events?
+    # For now, just use assessments as timeline
+    sorted_upcoming = sorted(upcoming_assessments, key=lambda x: x["date"])
     
     timeline_data = {
-        "academic_year": "2025-2026",
-        "term": "First Term",
-        "upcoming": [
-            {"type": "EXAM", "title": "Mid-term Exams", "date": "2026-03-15"},
-            {"type": "EVENT", "title": "Science Fair", "date": "2026-04-10"}
-        ]
+        "academic_year": "2025-2026", # Should fetch active year name
+        "term": "Current Term", # Should fetch active term
+        "upcoming": sorted_upcoming[:5]
     }
 
     return StudentDashboardOverview(

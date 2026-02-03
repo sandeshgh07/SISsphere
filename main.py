@@ -20,6 +20,7 @@ from finance.payment_router import router as payment_router
 from finance.fee_templates_router import router as fee_templates_router
 from finance.discount_rules_router import router as discount_rules_router
 from finance.invoices_router import router as invoices_router
+from finance.ledger_router import router as ledger_router
 from finance.analytics_router import router as analytics_router
 from finance.legacy_router import router as legacy_router
 from admin.router import router as admin_router
@@ -138,6 +139,7 @@ app.include_router(payment_router, prefix="/api")
 app.include_router(fee_templates_router, prefix="/api")
 app.include_router(discount_rules_router, prefix="/api")
 app.include_router(invoices_router) # Prefixed in router
+app.include_router(ledger_router)
 app.include_router(analytics_router)
 app.include_router(legacy_router)
 app.include_router(admin_router, prefix="/api")
@@ -162,6 +164,10 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(teacher_dashboard_router, prefix="/api/dashboard")
 app.include_router(users_profile_router, prefix="/api")
 app.include_router(audit_router, prefix="/api/audit", tags=["audit"])
+from academics.teaching_assignments_router import router as teaching_assignments_router
+app.include_router(teaching_assignments_router, prefix="/api") # Prefixed in router as /teaching-assignments so final is /api/teaching-assignments
+from students.parents_router import router as parents_router
+app.include_router(parents_router, prefix="/api")
 
 @app.get("/health")
 async def health_check():

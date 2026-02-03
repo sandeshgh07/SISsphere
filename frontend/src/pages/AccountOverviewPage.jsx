@@ -208,7 +208,7 @@ const AccountOverviewPage = () => {
             {/* 1. Header Row */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-xl border border-gray-100 shadow-sm gap-4">
                 <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-nepsis-primary/10 text-nepsis-primary flex items-center justify-center text-xl font-bold border-2 border-white shadow-sm">
+                    <div className="w-16 h-16 rounded-full bg-sissphere-primary/10 text-sissphere-primary flex items-center justify-center text-xl font-bold border-2 border-white shadow-sm">
                         {userInfo.name ? userInfo.name[0].toUpperCase() : 'U'}
                     </div>
                     <div>

@@ -318,6 +318,28 @@ class DiscountRule(Base):
     )
 
 
+class StudentDiscountAssociation(Base):
+    """
+    Link table to assign DiscountRules to Students without cloning/duplicating the rule.
+    Allows "toggling" rules on/off for specific students.
+    """
+    __tablename__ = "student_discount_associations"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    school_id = Column(String, ForeignKey("schools.id"), nullable=False)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False)
+    discount_rule_id = Column(String, ForeignKey("discount_rules.id"), nullable=False)
+    
+    is_active = Column(String(5), default="true")
+    assigned_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    assigned_by = Column(String, ForeignKey("users.id"), nullable=True)
+
+    __table_args__ = (
+        Index("idx_sda_school_student", "school_id", "student_id"),
+        Index("idx_sda_school_student_rule", "school_id", "student_id", "discount_rule_id", unique=True),
+    )
+
+
 class StudentInvoice(Base):
     """
     Auto-generated student invoice per billing period.

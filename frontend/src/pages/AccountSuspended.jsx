@@ -4,13 +4,13 @@ import { Lock } from 'lucide-react';
 const AccountSuspended = () => {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-center p-6">
-      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full border-t-8 border-nepsis-alert">
+      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full border-t-8 border-sissphere-alert">
         <div className="flex justify-center mb-6">
           <div className="bg-red-100 p-4 rounded-full">
-            <Lock className="w-12 h-12 text-nepsis-alert" />
+            <Lock className="w-12 h-12 text-sissphere-alert" />
           </div>
         </div>
-        <h1 className="text-3xl font-bold text-nepsis-primary mb-4">Account Suspended</h1>
+        <h1 className="text-3xl font-bold text-sissphere-primary mb-4">Account Suspended</h1>
         <p className="text-gray-600 mb-8 text-lg">
           Your school's subscription has expired and the grace period has ended.
           Access to the system has been restricted.
@@ -21,7 +21,7 @@ const AccountSuspended = () => {
           </div>
           <button
             onClick={() => window.location.href = '/login'}
-            className="text-nepsis-primary font-medium hover:underline"
+            className="text-sissphere-primary font-medium hover:underline"
           >
             Back to Login
           </button>

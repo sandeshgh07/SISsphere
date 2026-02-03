@@ -1,147 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Shield, Zap, Users, BarChart3, MessageSquare, X,
-  Check, Smartphone, Globe, Lock, School
-} from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import api from '../lib/api';
 
-const COLORS = {
-  primary: '#003333',
-  accent: '#5C2438',
-  white: '#ffffff',
-  lightGray: '#f8fafc',
-};
-
-const Section = ({ id, className, children }) => (
-  <section id={id} className={`min-h-screen py-20 px-6 md:px-12 flex flex-col justify-center ${className}`}>
-    {children}
-  </section>
-);
-
-const NavButton = ({ id, label, active, onClick }) => (
-  <motion.button
-    whileHover={{ x: 5, scale: 1.05 }}
-    onClick={() => onClick(id)}
-    className={`mb-4 w-full text-left px-4 py-2 rounded-lg transition-colors relative
-      ${active ? 'text-white' : 'text-gray-600 hover:text-nepsis-primary'}`}
-    style={{ backgroundColor: active ? COLORS.primary : 'transparent' }}
-  >
-    {active && (
-      <motion.div
-        layoutId="activeGlow"
-        className="absolute inset-0 rounded-lg shadow-[0_0_15px_rgba(0,51,51,0.5)]"
-        style={{ zIndex: -1 }}
-      />
-    )}
-    <span className="font-medium">{label}</span>
-  </motion.button>
-);
-
-const PricingCard = ({ title, features, recommended }) => (
-  <motion.div
-    whileHover={{ y: -10 }}
-    className={`relative p-8 rounded-2xl border ${recommended ? 'border-nepsis-alert shadow-xl' : 'border-gray-200'}`}
-    style={{ backgroundColor: COLORS.white }}
-  >
-    {recommended && (
-      <div className="absolute top-0 right-0 bg-nepsis-alert text-white text-xs font-bold px-3 py-1 rounded-bl-lg rounded-tr-lg">
-        POPULAR
-      </div>
-    )}
-    <h3 className="text-2xl font-bold mb-4" style={{ color: COLORS.primary }}>{title}</h3>
-    <ul className="space-y-3 mb-8">
-      {features.map((feat, i) => (
-        <li key={i} className="flex items-start">
-          <Check className="w-5 h-5 text-green-600 mr-2 flex-shrink-0" />
-          <span className="text-gray-600 text-sm">{feat}</span>
-        </li>
-      ))}
-    </ul>
-    <button className={`w-full py-3 rounded-lg font-bold transition-all
-      ${recommended ? 'bg-nepsis-alert text-white hover:opacity-90' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}>
-      Choose {title}
-    </button>
-  </motion.div>
-);
-
-const ChatWindow = ({ onClose }) => {
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: 'Hello! I am your Classa Concierge. How can I help you transform your school today?' }
-  ]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-    const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-    setInput('');
-    setLoading(true);
-
-    try {
-      const res = await api.post('/chat/public', { message: userMsg });
-      setMessages(prev => [...prev, { role: 'assistant', text: res.data.response }]);
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, I am having trouble connecting right now.' }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.9 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.9 }}
-      className="fixed bottom-24 right-6 w-80 md:w-96 h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden z-50 border border-gray-100"
-    >
-      <div className="p-4 bg-nepsis-primary text-white flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <h3 className="font-bold">Classa Concierge</h3>
-        </div>
-        <button onClick={onClose}><X className="w-5 h-5" /></button>
-      </div>
-      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] p-3 rounded-xl text-sm ${m.role === 'user'
-              ? 'bg-nepsis-primary text-white rounded-tr-none'
-              : 'bg-white text-gray-800 shadow-sm border border-gray-200 rounded-tl-none'
-              }`}>
-              {m.text}
-            </div>
-          </div>
-        ))}
-        {loading && <div className="text-gray-400 text-xs ml-2">Typing...</div>}
-      </div>
-      <div className="p-4 bg-white border-t border-gray-100">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nepsis-primary/20"
-            placeholder="Ask about features..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          />
-          <button onClick={sendMessage} className="bg-nepsis-primary text-white p-2 rounded-lg hover:bg-opacity-90">
-            <MessageSquare className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
 const LandingPage = () => {
-  const [activeSection, setActiveSection] = useState('home');
-  const [chatOpen, setChatOpen] = useState(false);
   const navigate = useNavigate();
-
-  // Contact form state
+  const [searchQuery, setSearchQuery] = useState('');
   const [contactForm, setContactForm] = useState({
     name: '',
     email: '',
@@ -149,456 +14,553 @@ const LandingPage = () => {
     school_name: '',
     message: ''
   });
-  const [contactSubmitting, setContactSubmitting] = useState(false);
-  const [contactSuccess, setContactSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Handle contact form submission
-  const handleContactSubmit = async () => {
-    if (!contactForm.name || !contactForm.email || !contactForm.subject || !contactForm.message) {
-      return;
-    }
-    setContactSubmitting(true);
-    try {
-      await api.post('/public/contact', contactForm);
-      setContactSuccess(true);
-      setContactForm({ name: '', email: '', subject: '', school_name: '', message: '' });
-      setTimeout(() => setContactSuccess(false), 5000);
-    } catch (err) {
-      console.error('Contact form error:', err);
-    } finally {
-      setContactSubmitting(false);
+  const handleFindSchool = () => {
+    if (searchQuery.trim()) {
+      navigate(`/find-school?query=${encodeURIComponent(searchQuery)}`);
+    } else {
+      navigate('/find-school');
     }
   };
 
-  // School search state
-  const [schools, setSchools] = useState([]);
-  const [schoolSearch, setSchoolSearch] = useState('');
-  const [schoolsLoading, setSchoolsLoading] = useState(false);
+  const handleContactChange = (e) => {
+    setContactForm({ ...contactForm, [e.target.name]: e.target.value });
+  };
 
-  // Load schools on mount
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    if (!contactForm.name || !contactForm.email || !contactForm.message || !contactForm.subject) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      // Assuming api baseURL is set to backend
+      // Router path is /public/contact inside communication router. 
+      // Need to check how api routing is set up. Usually /communication/public/contact
+      await api.post('/communication/public/contact', contactForm);
+      toast.success("Message sent! We will get back to you shortly.");
+      setContactForm({ name: '', email: '', subject: '', school_name: '', message: '' });
+    } catch (error) {
+      console.error("Contact form error:", error);
+      toast.error("Failed to send message. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   useEffect(() => {
-    const loadSchools = async () => {
-      setSchoolsLoading(true);
-      try {
-        const res = await api.get('/public/schools');
-        setSchools(res.data || []);
-      } catch (err) {
-        console.error('Failed to load schools:', err);
-      } finally {
-        setSchoolsLoading(false);
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('active'); });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    const handleMouseMove = (e) => {
+      if (window.innerWidth > 768) {
+        const cards = document.querySelectorAll('.float-card');
+        const x = (window.innerWidth - e.pageX) / 40;
+        const y = (window.innerHeight - e.pageY) / 40;
+        cards.forEach(card => { card.style.transform = `translateX(${x}px) translateY(${y}px)`; });
       }
     };
-    loadSchools();
-  }, []);
 
-  // Filter schools based on search
-  const filteredSchools = schools.filter(school =>
-    school.name?.toLowerCase().includes(schoolSearch.toLowerCase()) ||
-    school.slug?.toLowerCase().includes(schoolSearch.toLowerCase())
-  );
+    document.addEventListener('mousemove', handleMouseMove);
 
-  // Intersection Observer to detect active section
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setActiveSection(entry.target.id);
-          }
-        });
-      },
-      { threshold: 0.5 } // Trigger when 50% of the section is visible
-    );
-
-    const sections = ['home', 'features', 'pricing', 'services', 'schools', 'contact'];
-    sections.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
-
-    return () => observer.disconnect();
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
 
   const scrollTo = (id) => {
-    setActiveSection(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleRequestDemo = (source = 'generic') => {
-    navigate(`/contact?source=${source}`);
+    const element = document.getElementById(id);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   return (
-    <div className="bg-white min-h-screen font-sans text-gray-900 selection:bg-nepsis-primary selection:text-white">
+    <div className="landing-page-wrapper">
+      <style>{`
+                /* --- CORE VARIABLES --- */
+                :root {
+                    --lux: #123332;
+                    --lux-dark: #0A1F1E;
+                    --wine: #5C2438;
+                    --wine-bright: #8A3E59;
+                    --neon-teal: #00FFC2;
+                    --neon-red: #FF2E63;
+                    --white: #FFFFFF;
+                    /* Using system font / Inter instead of Orbitron as requested */
+                    --font-head: inherit; 
+                    --font-body: inherit;
+                }
 
-      {/* Floating Nav */}
-      <motion.nav
-        initial={{ x: -100 }}
-        animate={{ x: 0 }}
-        className="fixed left-6 top-1/2 -translate-y-1/2 z-40 hidden lg:block"
-      >
-        <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border border-gray-100 flex flex-col w-40">
-          {['Home', 'Features', 'Pricing', 'Services', 'Schools', 'Contact'].map((item) => (
-            <NavButton
-              key={item}
-              id={item.toLowerCase()}
-              label={item}
-              active={activeSection === item.toLowerCase()}
-              onClick={scrollTo}
-            />
-          ))}
+                .landing-page-wrapper {
+                     background-color: var(--lux);
+                    color: var(--white);
+                    font-family: var(--font-body);
+                    overflow-x: hidden;
+                    line-height: 1.6;
+                    min-height: 100vh;
+                }
+
+                * { box-sizing: border-box; }
+                
+                /* --- BG FX --- */
+                .bg-mesh {
+                    position: fixed; width: 100vw; height: 100vh; z-index: 1; top: 0; left: 0; pointer-events: none;
+                    background: radial-gradient(circle at 15% 50%, rgba(92, 36, 56, 0.4) 0%, transparent 25%),
+                                radial-gradient(circle at 85% 30%, rgba(18, 51, 50, 0.8) 0%, transparent 50%);
+                    animation: pulseBg 10s ease-in-out infinite alternate;
+                }
+                .grid-floor {
+                    position: fixed; width: 200%; height: 100vh; bottom: -20%; left: -50%;
+                    background-image: linear-gradient(rgba(0, 255, 194, 0.05) 1px, transparent 1px),
+                                      linear-gradient(90deg, rgba(0, 255, 194, 0.05) 1px, transparent 1px);
+                    background-size: 50px 50px;
+                    transform: perspective(500px) rotateX(60deg);
+                    animation: gridMove 20s linear infinite; z-index: 0; pointer-events: none;
+                }
+                @keyframes gridMove { 0% { transform: perspective(500px) rotateX(60deg) translateY(0); } 100% { transform: perspective(500px) rotateX(60deg) translateY(50px); } }
+
+                /* --- NAV --- */
+                .landing-nav {
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding: 1rem 5%; position: fixed; top: 0; width: 100%; z-index: 1000;
+                    backdrop-filter: blur(12px); background: rgba(18, 51, 50, 0.9);
+                    border-bottom: 1px solid rgba(255,255,255,0.1);
+                }
+                .logo { font-size: 1.5rem; font-weight: 900; letter-spacing: 2px; }
+                .logo span { color: var(--wine-bright); }
+                .nav-links { display: flex; gap: 1.5rem; }
+                .nav-links button { background: none; border: none; font-family: inherit; cursor: pointer; color: #ccc; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
+                .nav-links button:hover { color: var(--neon-teal); }
+                .btn-cta {
+                    padding: 0.6rem 1.5rem; border-radius: 50px; background: var(--wine); color: white;
+                    font-weight: bold; text-decoration: none; border: 1px solid rgba(255,255,255,0.2); transition: 0.3s; cursor: pointer;
+                }
+                .btn-cta:hover { background: var(--wine-bright); box-shadow: 0 0 15px var(--wine-bright); }
+
+                /* --- MOBILE NAV --- */
+                @media (max-width: 768px) {
+                    .nav-links { display: none; }
+                    .hero { flex-direction: column; padding-top: 120px; text-align: center; }
+                    .hero-text { max-width: 100%; }
+                    .hero-visuals { width: 100%; height: 300px; margin-top: 2rem; }
+                    .contact-container { grid-template-columns: 1fr; padding: 2rem; }
+                    .form-row { grid-template-columns: 1fr; }
+                }
+
+                /* --- HERO --- */
+                .landing-section { padding: 5rem 5%; position: relative; z-index: 2; }
+                .hero { min-height: 100vh; display: flex; align-items: center; justify-content: space-between; }
+                .hero-text { max-width: 50%; z-index: 2; }
+                
+                .hero-text h1 {
+                    font-size: 3.5rem; line-height: 1.1; margin-bottom: 1.5rem; font-weight: 800;
+                    background: linear-gradient(to right, #fff, #a0a0a0); -webkit-background-clip: text; color: transparent;
+                }
+                .hero-visuals { width: 45%; height: 50vh; position: relative; perspective: 1000px; }
+                .float-card {
+                    position: absolute; background: rgba(10, 31, 30, 0.9); border: 1px solid var(--neon-teal);
+                    border-radius: 12px; padding: 1rem; color: var(--neon-teal); font-family: monospace;
+                    box-shadow: 0 0 20px rgba(0, 255, 194, 0.15); transition: transform 0.1s ease-out;
+                }
+                .c1 { top: 10%; right: 10%; width: 200px; z-index: 2; }
+                .c2 { top: 40%; left: 0%; width: 240px; z-index: 3; border-color: var(--wine-bright); color: var(--wine-bright); }
+                .c3 { bottom: 10%; right: 20%; width: 180px; z-index: 1; }
+                .bar-chart { display: flex; align-items: flex-end; height: 40px; gap: 4px; margin-top: 10px; }
+                .bar { background: currentColor; width: 100%; opacity: 0.6; animation: growBar 2s infinite alternate; }
+                @keyframes growBar { 0% { height: 20%; } 100% { height: 100%; } }
+
+                /* --- FEATURES GRID (ANIMATED) --- */
+                .section-header { text-align: center; margin-bottom: 3rem; }
+                .section-header h2 { font-size: 2.5rem; margin-bottom: 0.5rem; font-weight: 700; color: white; }
+                .landing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+
+                .landing-card {
+                    background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 15px; padding: 2rem; transition: 0.4s; position: relative; overflow: hidden;
+                    display: flex; flex-direction: column; justify-content: flex-start;
+                }
+                .landing-card:hover { transform: translateY(-5px); border-color: var(--wine-bright); background: rgba(92, 36, 56, 0.15); }
+                .landing-card h3 { margin: 1rem 0; font-size: 1.2rem; color: #fff; font-weight: 700; }
+                .landing-card p { font-size: 0.9rem; color: #b0bec5; }
+                .anim-box { height: 60px; width: 60px; position: relative; display: flex; align-items: center; justify-content: center; }
+
+                /* ANIMATION CSS (Lock, QR, etc) */
+                .lock-svg { width: 50px; height: 50px; stroke: var(--wine-bright); stroke-width: 4; fill: none; }
+                .landing-card:hover .shackle { transform: translateY(8px); }
+                .shackle { transition: transform 0.4s cubic-bezier(0.5, 0, 0.5, 1.5); }
+                
+                .qr-box { width: 50px; height: 50px; background: white; padding: 4px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; position: relative; overflow: hidden; border-radius: 4px; }
+                .q-dot { background: black; width: 100%; height: 100%; }
+                .scan-line { position: absolute; top:0; left:0; width:100%; height:2px; background:red; box-shadow: 0 0 10px red; opacity:0; }
+                .landing-card:hover .scan-line { opacity:1; animation: scanDown 1.5s linear infinite; }
+                @keyframes scanDown { 0% { top:0; } 50% { top:100%; } 100% { top:0; } }
+
+                .robot-svg { width: 50px; height: 50px; fill: none; stroke: var(--neon-teal); stroke-width: 3; }
+                .landing-card:hover .robot-eye { animation: blink 0.5s infinite alternate; fill: var(--neon-teal); }
+                .landing-card:hover .robot-ant { animation: ping 1s infinite; }
+                @keyframes blink { from { opacity: 0.2; } to { opacity: 1; } }
+                @keyframes ping { 0% { stroke-width: 3; } 50% { stroke-width: 6; opacity: 0.5; } 100% { stroke-width: 3; } }
+
+                .bolt-svg { width: 40px; height: 50px; fill: var(--white); filter: drop-shadow(0 0 5px yellow); opacity: 0.8; }
+                .landing-card:hover .bolt-svg { animation: strike 0.8s infinite; }
+                @keyframes strike { 0% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.2); opacity: 1; filter: drop-shadow(0 0 15px yellow); } 100% { transform: scale(1); opacity: 0.8; } }
+
+                .fin-svg { width: 60px; height: 40px; fill: none; stroke: #ffcc00; stroke-width: 3; overflow: visible; }
+                .card-rect { fill: rgba(255, 204, 0, 0.1); }
+                .landing-card:hover .fin-svg { animation: swipe 1.5s ease-in-out infinite; }
+                @keyframes swipe { 0% { transform: translateX(0); } 50% { transform: translateX(10px) rotateY(15deg); } 100% { transform: translateX(0); } }
+
+                .ppl-svg { width: 60px; height: 50px; fill: none; stroke: var(--neon-teal); stroke-width: 3; }
+                .head { fill: var(--neon-teal); opacity: 0.5; }
+                .landing-card:hover .p-left { animation: bob 1s infinite alternate; }
+                .landing-card:hover .p-right { animation: bob 1s infinite alternate-reverse; }
+                @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+
+                .doc-svg { width: 45px; height: 55px; fill: none; stroke: white; stroke-width: 3; }
+                .check-mark { stroke: var(--neon-teal); stroke-dasharray: 20; stroke-dashoffset: 20; opacity: 0; }
+                .landing-card:hover .check-mark { animation: drawCheck 0.5s forwards; opacity: 1; }
+                .landing-card:hover .check-2 { animation-delay: 0.2s; }
+                .landing-card:hover .check-3 { animation-delay: 0.4s; }
+                @keyframes drawCheck { to { stroke-dashoffset: 0; } }
+
+                .chart-svg { width: 50px; height: 50px; display: flex; align-items: flex-end; gap: 5px; }
+                .c-bar { width: 10px; background: var(--wine-bright); transition: height 0.3s; }
+                .landing-card:hover .cb1 { animation: chartGrow 0.6s infinite alternate; }
+                .landing-card:hover .cb2 { animation: chartGrow 0.8s infinite alternate-reverse; }
+                .landing-card:hover .cb3 { animation: chartGrow 0.5s infinite alternate; }
+                @keyframes chartGrow { from { height: 20%; } to { height: 90%; } }
+
+                /* --- SCHOOLS PORTAL SECTION (RESTORED) --- */
+                #schools {
+                    background: linear-gradient(180deg, var(--lux) 0%, #050f0f 100%);
+                    border-top: 1px solid var(--wine-bright);
+                    border-bottom: 1px solid var(--wine-bright);
+                    min-height: 60vh;
+                    display: flex; flex-direction: column; justify-content: center; align-items: center;
+                    text-align: center;
+                }
+                .portal-box {
+                    background: rgba(18, 51, 50, 0.8);
+                    padding: 3rem; border-radius: 20px;
+                    border: 1px solid var(--neon-teal);
+                    box-shadow: 0 0 30px rgba(0, 255, 194, 0.1);
+                    max-width: 600px; width: 100%;
+                }
+                .portal-input {
+                    width: 100%; padding: 1rem; margin: 1.5rem 0;
+                    background: rgba(0,0,0,0.5); border: 1px solid #555;
+                    color: white; border-radius: 5px; font-family: inherit;
+                }
+                .portal-input:focus { border-color: var(--neon-teal); outline: none; }
+
+                /* --- PRICING --- */
+                .pricing-card {
+                    background: rgba(18, 51, 50, 0.6); border: 1px solid rgba(255,255,255,0.1);
+                    padding: 2rem; border-radius: 20px; text-align: center; position: relative;
+                }
+                .pricing-card.popular { border: 2px solid var(--wine-bright); box-shadow: 0 0 30px rgba(92, 36, 56, 0.3); transform: scale(1.05); z-index: 2; }
+                .price-list { list-style: none; margin: 2rem 0; text-align: left; padding-left: 10px; }
+                .price-list li { margin-bottom: 0.8rem; font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px; }
+                .btn-price { display: block; width: 100%; padding: 1rem; background: transparent; border: 1px solid white; color: white; margin-top: 1rem; cursor: pointer; transition: 0.3s; }
+                .pricing-card.popular .btn-price { background: var(--wine); border: none; }
+                .btn-price:hover { background: var(--white); color: var(--lux); }
+                .price-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; color: white; }
+
+                /* --- SERVICES (RESTORED POINTS) --- */
+                .service-list {
+                    display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;
+                    margin-top: 2rem;
+                }
+                .service-point {
+                    background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;
+                    display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,0.05);
+                }
+                .service-point span { color: var(--neon-teal); font-weight: bold; }
+
+                /* --- CONTACT --- */
+                .contact-container {
+                    display: grid; grid-template-columns: 1fr 1.5fr; gap: 4rem;
+                    background: #061615; padding: 4rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);
+                }
+                .contact-info-box { background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem; }
+                .c-icon { width: 40px; height: 40px; background: var(--wine); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+                .why-list { margin-top: 2rem; background: rgba(18, 51, 50, 0.5); padding: 2rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
+                .why-item { margin-bottom: 0.8rem; display: flex; gap: 10px; font-size: 0.9rem; }
+                .why-item span { color: var(--neon-teal); }
+                .contact-form { background: white; color: #123332; padding: 2.5rem; border-radius: 15px; }
+                .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+                .landing-label { display: block; font-size: 0.8rem; font-weight: bold; margin-bottom: 5px; }
+                .landing-input, .landing-textarea { width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 5px; font-family: inherit; }
+                .btn-submit { width: 100%; padding: 1rem; background: var(--wine); color: white; border: none; border-radius: 5px; font-weight: bold; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+                .btn-submit:hover { background: var(--wine-bright); }
+
+                .reveal { opacity: 0; transform: translateY(30px); transition: all 0.8s ease; }
+                .reveal.active { opacity: 1; transform: translateY(0); }
+            `}</style>
+
+      <div className="bg-mesh"></div>
+      <div className="grid-floor"></div>
+
+      <nav className="landing-nav">
+        <div className="logo">SISSPHERE<span>.</span></div>
+        <div className="nav-links">
+          <button onClick={() => scrollTo('home')}>Home</button>
+          <button onClick={() => scrollTo('features')}>Features</button>
+          <button onClick={() => scrollTo('schools')}>Schools</button>
+          <button onClick={() => scrollTo('pricing')}>Pricing</button>
+          <button onClick={() => scrollTo('services')}>Services</button>
         </div>
-      </motion.nav>
+        <button onClick={() => scrollTo('contact')} className="btn-cta">Request Free Demo</button>
+      </nav>
 
-      {/* Hero Section */}
-      <Section id="home" className="bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="max-w-4xl mx-auto text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 text-nepsis-primary">
-              Classa Enterprise
-            </h1>
-            <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-2xl mx-auto">
-              The Intelligent School Management System powered by Nepsis AI.
-            </p>
-            <div className="flex gap-4 justify-center">
-              <button onClick={() => scrollTo('contact')} className="px-8 py-4 bg-nepsis-primary text-white rounded-full font-bold hover:shadow-lg hover:scale-105 transition-all">
-                Get Started
-              </button>
-              <button onClick={() => navigate('/login')} className="px-8 py-4 bg-white text-nepsis-primary border-2 border-nepsis-primary rounded-full font-bold hover:bg-gray-50 transition-all">
-                Login
-              </button>
+      <section className="landing-section hero" id="home">
+        <div className="hero-text reveal">
+          <h1>Ironclad.<br />Intelligent.<br />SISsphere.</h1>
+          <p style={{ color: '#b0bec5', marginBottom: '2rem', fontSize: '1.1rem' }}>
+            The student information system that thinks.
+            Bank-grade encryption, AI-driven insights, and strict tenant isolation.
+          </p>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <button onClick={() => scrollTo('features')} className="btn-cta">Explore Features</button>
+            <button onClick={() => navigate('/login')} style={{ padding: '0.6rem 1.5rem', border: '1px solid white', color: 'white', textDecoration: 'none', borderRadius: '50px', background: 'transparent', cursor: 'pointer' }}>Portal Login</button>
+          </div>
+        </div>
+        <div className="hero-visuals">
+          <div className="float-card c1">
+            <div style={{ fontSize: '0.8rem', borderBottom: '1px solid #333', marginBottom: '5px' }}>AI PREDICTION</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>At Risk: 2%</div>
+            <div className="bar-chart"><div className="bar" style={{ height: '40%' }}></div><div className="bar" style={{ height: '80%' }}></div><div className="bar" style={{ height: '30%' }}></div></div>
+          </div>
+          <div className="float-card c2">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>AUDIT LOG</span><span style={{ width: '8px', height: '8px', background: 'red', borderRadius: '50%', boxShadow: '0 0 5px red' }}></span>
             </div>
-          </motion.div>
-        </div>
-      </Section>
-
-      {/* Features Section */}
-      <Section id="features">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-4xl font-bold text-center mb-16 text-nepsis-primary">Why Classa Leads</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              { icon: Shield, title: "Ironclad Security", desc: "Bank-grade encryption and secure access controls." },
-              { icon: Zap, title: "Lightning Fast", desc: "Optimized for speed even on slow connections." },
-              { icon: Users, title: "Parent Engagement", desc: "Real-time updates to keep parents in the loop." },
-              { icon: BarChart3, title: "Data Driven", desc: "Actionable insights for school boards." },
-              { icon: Smartphone, title: "Mobile First", desc: "Works perfectly on any device, anywhere." },
-              { icon: Globe, title: "Global Ready", desc: "Multi-language and multi-currency support." }
-            ].map((feature, i) => (
-              <motion.div
-                key={i}
-                whileHover={{ y: -5 }}
-                className="p-6 bg-gray-50 rounded-xl hover:shadow-md transition-all"
-              >
-                <feature.icon className="w-10 h-10 text-nepsis-primary mb-4" />
-                <h3 className="text-xl font-bold mb-2">{feature.title}</h3>
-                <p className="text-gray-600">{feature.desc}</p>
-              </motion.div>
-            ))}
+            <div style={{ fontSize: '0.7rem', marginTop: '10px', opacity: 0.8 }}>&gt; User: Admin_01<br />&gt; Action: Fee_Update<br />&gt; Encryption: AES-256</div>
+          </div>
+          <div className="float-card c3">
+            <div style={{ textAlign: 'center' }}>ATTENDANCE</div><div style={{ fontSize: '2rem', textAlign: 'center' }}>98.4%</div>
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* Pricing Section */}
-      <Section id="pricing" className="bg-gray-50">
-        <div className="max-w-6xl mx-auto w-full">
-          <h2 className="text-4xl font-bold text-center mb-16 text-nepsis-primary">Transparent Pricing</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <PricingCard
-              title="BASIC"
-              features={["Core SIS", "Parent Dashboard", "Smart Admissions", "Board 'God View'"]}
-            />
-            <PricingCard
-              title="PLUS"
-              features={["Everything in BASIC", "AI Assistant", "Teacher's Hub", "Multilingual Support"]}
-              recommended
-            />
-            <PricingCard
-              title="PRO"
-              features={["Everything in PLUS", "Risk Early Warning", "QR Safety Gate", "Audit Justification", "Advanced Analytics"]}
-            />
+      <section className="landing-section" id="features">
+        <div className="section-header reveal">
+          <h2>System Architecture</h2>
+          <p>Built for speed, security, and scale.</p>
+        </div>
+        <div className="landing-grid">
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="lock-svg" viewBox="0 0 50 50"><path className="shackle" d="M15 20 V10 A10 10 0 0 1 35 10 V20" /><rect x="10" y="20" width="30" height="25" rx="3" fill="#5C2438" stroke="none" /></svg></div>
+            <h3>Ironclad Security</h3><p>Bank-grade encryption, tenant isolation, and strict RBAC. Data bursts reunite and lock instantly.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><div className="qr-box"><div className="q-dot"></div><div className="q-dot" style={{ opacity: 0 }}></div><div className="q-dot"></div><div className="q-dot"></div><div className="q-dot"></div><div className="q-dot"></div><div className="q-dot" style={{ opacity: 0 }}></div><div className="q-dot"></div><div className="scan-line"></div></div></div>
+            <h3>QR Safety Gate</h3><p>Parents use dynamic QR codes for gate passes. Instant logs of who picked up whom and when.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="robot-svg" viewBox="0 0 50 50"><rect x="10" y="15" width="30" height="25" rx="5" /><circle className="robot-eye" cx="18" cy="25" r="3" /><circle className="robot-eye" cx="32" cy="25" r="3" /><line className="robot-ant" x1="25" y1="15" x2="25" y2="5" /><circle cx="25" cy="5" r="2" fill="var(--neon-teal)" /></svg></div>
+            <h3>AI Driven Data</h3><p>Predictive analytics identify at-risk students. Actionable insights for school boards.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="bolt-svg" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg></div>
+            <h3>Lightning Fast</h3><p>Optimized for speed even on slow connections. Works perfectly on any device, anywhere (Mobile First).</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="fin-svg" viewBox="0 0 60 40"><rect className="card-rect" x="2" y="5" width="56" height="30" rx="4" /><line x1="2" y1="12" x2="58" y2="12" /><rect x="8" y="20" width="10" height="6" fill="#ffcc00" /></svg></div>
+            <h3>Automated Finance</h3><p>Seamless fee collection, automated invoicing, and instant reconciliation with global gateways.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="ppl-svg" viewBox="0 0 60 50"><circle className="head p-left" cx="20" cy="15" r="6" /><path className="p-left" d="M10 40 Q20 20 30 40" /><circle className="head p-right" cx="40" cy="15" r="6" /><path className="p-right" d="M30 40 Q40 20 50 40" /></svg></div>
+            <h3>Parent Engagement</h3><p>Real-time updates to keep parents in the loop via dedicated mobile portals.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><svg className="doc-svg" viewBox="0 0 50 60"><path d="M10 5 H40 V55 H10 Z" /><path className="check-mark check-1" d="M15 15 L20 20 L35 10" /><path className="check-mark check-2" d="M15 30 L20 35 L35 25" /><path className="check-mark check-3" d="M15 45 L20 50 L35 40" /></svg></div>
+            <h3>Smart Admissions</h3><p>Paperless enrollment. Digital forms with automated document verification.</p>
+          </div>
+          <div className="landing-card reveal">
+            <div className="anim-box"><div className="chart-svg"><div className="c-bar cb1" style={{ height: '30%' }}></div><div className="c-bar cb2" style={{ height: '60%' }}></div><div className="c-bar cb3" style={{ height: '45%' }}></div><div className="c-bar cb1" style={{ height: '80%' }}></div></div></div>
+            <h3>Data Analytics</h3><p>Visual reports for multi-branch institutions. View growth, revenue, and retention at a glance.</p>
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* Services Section */}
-      <Section id="services">
-        <div className="max-w-6xl mx-auto w-full flex flex-col md:flex-row items-center gap-12">
-          <div className="flex-1">
-            <h2 className="text-4xl font-bold mb-6 text-nepsis-primary">More Than Software</h2>
-            <p className="text-lg text-gray-600 mb-6">
+      <section className="landing-section" id="schools">
+        <div className="portal-box">
+          <h2 style={{ fontSize: '2.5rem', marginBottom: '0.5rem', fontWeight: 700, color: 'white' }}>Find Your Institution</h2>
+          <p style={{ color: '#b0bec5', marginBottom: '2rem' }}>
+            Securely redirect to your school's isolated tenant.
+          </p>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              className="portal-input"
+              placeholder="Enter School ID or Name (e.g. SCH-092)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleFindSchool()}
+            />
+            <div
+              style={{ position: 'absolute', right: '15px', top: '38px', color: 'var(--neon-teal)', cursor: 'pointer' }}
+              onClick={handleFindSchool}
+            >
+              🔍
+            </div>
+          </div>
+          <button
+            className="btn-cta"
+            style={{ width: '100%', fontSize: '1.1rem', marginTop: '1rem' }}
+            onClick={handleFindSchool}
+          >
+            ACCESS SECURE PORTAL
+          </button>
+          <p style={{ fontSize: '0.8rem', marginTop: '1rem', opacity: '0.6' }}>* All access is logged and audited.</p>
+        </div>
+      </section>
+
+      <section className="landing-section" id="pricing">
+        <div className="section-header reveal">
+          <h2>Transparent Pricing</h2>
+          <p>Choose the power you need.</p>
+        </div>
+        <div className="landing-grid">
+          <div className="pricing-card reveal">
+            <div className="price-title">BASIC</div>
+            <ul className="price-list"><li>Core SIS</li><li>Parent Dashboard</li><li>Smart Admissions</li><li>Board 'God View'</li></ul>
+            <button className="btn-price">Choose BASIC</button>
+          </div>
+          <div className="pricing-card popular reveal">
+            <div style={{ position: 'absolute', top: '-15px', left: '50%', transform: 'translateX(-50%)', background: 'var(--wine)', padding: '5px 15px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold' }}>POPULAR</div>
+            <div className="price-title">PLUS</div>
+            <ul className="price-list"><li>Everything in BASIC</li><li>AI Assistant</li><li>Teacher's Hub</li><li>Multilingual Support</li></ul>
+            <button className="btn-price">Choose PLUS</button>
+          </div>
+          <div className="pricing-card reveal">
+            <div className="price-title">PRO</div>
+            <ul className="price-list"><li>Everything in PLUS</li><li>Risk Early Warning</li><li>QR Safety Gate</li><li>Audit Justification</li><li>Advanced Analytics</li></ul>
+            <button className="btn-price">Choose PRO</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section" id="services">
+        <div className="contact-container reveal" style={{ background: 'rgba(255,255,255,0.02)', border: 'none' }}>
+          <div>
+            <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem', fontWeight: 700, color: 'white' }}>More Than Software</h2>
+            <p style={{ marginBottom: '2rem', color: '#b0bec5' }}>
               We provide end-to-end services to ensure your school succeeds. From data migration to staff training, we are with you every step of the way.
             </p>
-            <ul className="space-y-4">
-              {['On-site Training', '24/7 Priority Support', 'Custom Report Generation', 'Hardware Integration'].map((s, i) => (
-                <li key={i} className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-nepsis-alert" />
-                  <span>{s}</span>
-                </li>
-              ))}
-            </ul>
+            <div style={{ width: '200px', height: '200px', background: 'radial-gradient(circle, var(--wine-bright) 0%, transparent 70%)', borderRadius: '50%', filter: 'blur(40px)', animation: 'pulseBg 3s infinite' }}></div>
           </div>
-          <div className="flex-1 h-80 bg-gray-200 rounded-2xl flex items-center justify-center">
-            <School className="w-32 h-32 text-gray-400" />
+          <div>
+            <h3 style={{ marginBottom: '1.5rem', color: 'var(--neon-teal)' }}>Service Suite</h3>
+            <div className="service-list">
+              <div className="service-point"><span>✓</span> On-site Training</div>
+              <div className="service-point"><span>✓</span> 24/7 Priority Support</div>
+              <div className="service-point"><span>✓</span> Hardware Integration (Biometric/QR)</div>
+              <div className="service-point"><span>✓</span> Custom Report Generation</div>
+              <div className="service-point"><span>✓</span> Excel Data Migration Support</div>
+              <div className="service-point"><span>✓</span> Continuous Support & Feature Adds</div>
+            </div>
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* Find Your School Section */}
-      <Section id="schools" className="bg-gray-50">
-        <div className="max-w-4xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <h2 className="text-4xl font-bold text-nepsis-primary mb-4">Find Your School</h2>
-            <p className="text-xl text-gray-600">Already a member? Search for your school to access your portal.</p>
-          </motion.div>
-
-          {/* Search Input */}
-          <div className="max-w-xl mx-auto mb-8">
-            <div className="relative">
-              <input
-                type="text"
-                value={schoolSearch}
-                onChange={(e) => setSchoolSearch(e.target.value)}
-                placeholder="Search by school name..."
-                className="w-full px-6 py-4 pr-12 rounded-full border-2 border-gray-200 focus:border-nepsis-primary focus:outline-none text-lg shadow-sm"
-              />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                <School className="w-6 h-6 text-gray-400" />
-              </div>
+      <section className="landing-section" id="contact">
+        <div className="contact-container reveal">
+          <div>
+            <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem', fontWeight: 700, color: 'white' }}>Get in Touch</h2>
+            <p style={{ marginBottom: '2rem', color: '#ccc' }}>Ready to transform your school?</p>
+            <div className="contact-info-box"><div className="c-icon">📧</div><div><div style={{ fontSize: '0.8rem', opacity: '0.7' }}>Email Us</div><strong>sandeshgh07@gmail.com</strong></div></div>
+            <div className="contact-info-box"><div className="c-icon">📱</div><div><div style={{ fontSize: '0.8rem', opacity: '0.7' }}>Call Us</div><strong>+1 (647) 745-2035</strong></div></div>
+            <div className="why-list">
+              <h4 style={{ marginBottom: '1rem' }}>Why Choose SISsphere?</h4>
+              <div className="why-item"><span>✓</span> End-to-end school management</div>
+              <div className="why-item"><span>✓</span> AI-powered insights</div>
+              <div className="why-item"><span>✓</span> 24/7 priority support</div>
+              <div className="why-item"><span>✓</span> Custom training included</div>
             </div>
           </div>
+          <div className="contact-form">
+            <h3 style={{ color: '#123332', marginBottom: '0.5rem' }}>Send Us a Message</h3>
+            <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Fill out the form below and we'll get back to you shortly.</p>
 
-          {/* Schools Grid */}
-          {schoolsLoading ? (
-            <div className="text-center py-8">
-              <div className="inline-block w-8 h-8 border-4 border-nepsis-primary border-t-transparent rounded-full animate-spin" />
-              <p className="mt-2 text-gray-500">Loading schools...</p>
-            </div>
-          ) : filteredSchools.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-gray-200">
-              <School className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-600 mb-2">
-                {schools.length === 0 ? 'No Schools Registered Yet' : 'No Schools Found'}
-              </h3>
-              <p className="text-gray-500 mb-4">
-                {schools.length === 0
-                  ? 'Be the first to register your school with Classa Enterprise.'
-                  : 'Try a different search term or check the spelling.'}
-              </p>
-              {schools.length === 0 && (
-                <button
-                  onClick={() => scrollTo('contact')}
-                  className="px-6 py-3 bg-nepsis-alert text-white rounded-full font-bold hover:opacity-90 transition-all"
-                >
-                  Register Your School
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredSchools.map((school) => (
-                <motion.div
-                  key={school.id}
-                  whileHover={{ y: -5, scale: 1.02 }}
-                  onClick={() => navigate(`/school/${school.slug}/login`)}
-                  className="cursor-pointer bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-lg transition-all"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-nepsis-primary/10 flex items-center justify-center flex-shrink-0">
-                      <School className="w-6 h-6 text-nepsis-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 truncate">{school.name}</h3>
-                      <p className="text-sm text-gray-500">Code: {school.slug}</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="text-xs text-gray-400">Click to login</span>
-                    <span className="text-nepsis-primary font-medium text-sm">→</span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          {/* Alternative: Direct Link */}
-          <div className="text-center mt-8">
-            <p className="text-gray-500">
-              Or go directly to{' '}
-              <button onClick={() => navigate('/find-school')} className="text-nepsis-primary font-semibold hover:underline">
-                School Discovery Page
+            <form onSubmit={handleContactSubmit}>
+              <div className="form-row">
+                <div>
+                  <label className="landing-label">Name *</label>
+                  <input
+                    name="name"
+                    value={contactForm.name}
+                    onChange={handleContactChange}
+                    type="text"
+                    className="landing-input"
+                    placeholder="Your full name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="landing-label">Email *</label>
+                  <input
+                    name="email"
+                    value={contactForm.email}
+                    onChange={handleContactChange}
+                    type="email"
+                    className="landing-input"
+                    placeholder="your@email.com"
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className="landing-label">Subject *</label>
+                <input
+                  name="subject"
+                  value={contactForm.subject}
+                  onChange={handleContactChange}
+                  type="text"
+                  className="landing-input"
+                  placeholder="How can we help?"
+                  required
+                />
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className="landing-label">School Name (Optional)</label>
+                <input
+                  name="school_name"
+                  value={contactForm.school_name}
+                  onChange={handleContactChange}
+                  type="text"
+                  className="landing-input"
+                  placeholder="Your institution's name"
+                />
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className="landing-label">Message *</label>
+                <textarea
+                  name="message"
+                  value={contactForm.message}
+                  onChange={handleContactChange}
+                  className="landing-textarea"
+                  rows="4"
+                  placeholder="Tell us about your needs..."
+                  required
+                ></textarea>
+              </div>
+              <button type="submit" className="btn-submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Sending...' : 'Send Message'}
               </button>
-            </p>
+            </form>
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* Contact Section - Embedded Form */}
-      <Section id="contact" className="bg-gradient-to-br from-nepsis-primary to-[#001a1a]">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-12 items-start">
-            {/* Left: Contact Info */}
-            <div className="text-white space-y-8">
-              <div>
-                <h2 className="text-4xl md:text-5xl font-bold mb-4">Get in Touch</h2>
-                <p className="text-xl text-gray-300">Ready to transform your school? We'd love to hear from you.</p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm">
-                  <div className="w-12 h-12 rounded-full bg-nepsis-alert flex items-center justify-center">
-                    <MessageSquare className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400">Email Us</p>
-                    <a href="mailto:sandeshgh07@gmail.com" className="text-lg font-semibold hover:underline">sandeshgh07@gmail.com</a>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm">
-                  <div className="w-12 h-12 rounded-full bg-nepsis-alert flex items-center justify-center">
-                    <Smartphone className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400">Call Us</p>
-                    <a href="tel:+16477452035" className="text-lg font-semibold hover:underline">+1 (647) 745-2035</a>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 rounded-xl bg-white/5 border border-white/10">
-                <h3 className="text-lg font-semibold mb-3">Why Choose Classa?</h3>
-                <ul className="space-y-2 text-gray-300">
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> End-to-end school management</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> AI-powered insights</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> 24/7 priority support</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Custom training included</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Right: Contact Form */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              className="bg-white rounded-2xl p-8 shadow-2xl"
-            >
-              <h3 className="text-2xl font-bold mb-2 text-nepsis-primary">Send Us a Message</h3>
-              <p className="text-gray-500 mb-6">Fill out the form below and we'll get back to you shortly.</p>
-
-              <form onSubmit={(e) => { e.preventDefault(); handleContactSubmit(); }} className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-                    <input
-                      type="text"
-                      value={contactForm.name}
-                      onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
-                      placeholder="Your full name"
-                      required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nepsis-primary focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                    <input
-                      type="email"
-                      value={contactForm.email}
-                      onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
-                      placeholder="your@email.com"
-                      required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nepsis-primary focus:border-transparent"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
-                  <input
-                    type="text"
-                    value={contactForm.subject}
-                    onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
-                    placeholder="How can we help?"
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nepsis-primary focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">School Name (Optional)</label>
-                  <input
-                    type="text"
-                    value={contactForm.school_name}
-                    onChange={(e) => setContactForm({ ...contactForm, school_name: e.target.value })}
-                    placeholder="Your institution's name"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nepsis-primary focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Message *</label>
-                  <textarea
-                    value={contactForm.message}
-                    onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
-                    placeholder="Tell us about your needs..."
-                    required
-                    rows={4}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nepsis-primary focus:border-transparent resize-none"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={contactSubmitting}
-                  className="w-full py-4 bg-nepsis-alert text-white rounded-lg font-bold hover:opacity-90 transition-all disabled:opacity-50"
-                >
-                  {contactSubmitting ? 'Sending...' : 'Send Message'}
-                </button>
-                {contactSuccess && (
-                  <p className="text-green-600 text-center font-medium">Thank you! We'll be in touch soon.</p>
-                )}
-              </form>
-            </motion.div>
-          </div>
-        </div>
-      </Section>
-
-      {/* CTA Badge */}
-      <motion.div
-        className="fixed bottom-28 right-6 z-40 cursor-pointer"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        whileHover={{ scale: 1.05 }}
-        onClick={() => scrollTo('contact')}
-      >
-        <div className="bg-white px-4 py-2 rounded-full shadow-lg border border-gray-200 flex items-center gap-2">
-          <span className="text-nepsis-primary font-bold text-sm">Request a FREE trial</span>
-          <span className="w-2 h-2 rounded-full bg-nepsis-alert animate-pulse" />
-        </div>
-      </motion.div>
-
-      {/* Chat Bubble */}
-      {!chatOpen && (
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setChatOpen(true)}
-          className="fixed bottom-6 right-6 w-16 h-16 bg-nepsis-primary text-white rounded-full shadow-2xl flex items-center justify-center z-50 hover:bg-opacity-90 transition-all"
-        >
-          <MessageSquare className="w-8 h-8" />
-        </motion.button>
-      )}
-
-      {/* Chat Window */}
-      <AnimatePresence>
-        {chatOpen && <ChatWindow onClose={() => setChatOpen(false)} />}
-      </AnimatePresence>
-
+      <footer style={{ textAlign: 'center', padding: '2rem', fontSize: '0.8rem', opacity: '0.6' }}>&copy; 2026 SISsphere Systems Inc.</footer>
     </div>
   );
 };
