@@ -41,3 +41,4 @@ static/logos/
 static/receipts/
 static/admissions/*
 !static/admissions/.gitkeep
+apache-2.0-open-source-starter.zip
