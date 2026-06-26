@@ -177,6 +177,26 @@ def list_terms(
     
     return query.order_by(academic_models.Term.start_date).all()
 
+@router.patch("/terms/{term_id}", response_model=academic_schemas.TermResponse)
+def update_term(
+    term_id: str,
+    update: academic_schemas.TermUpdate,
+    db: Session = Depends(get_db),
+    tenant: TenantAccess = Depends(TenantAccess),
+    user=Depends(require_roles(Roles.PRINCIPAL, Roles.SUPER_ADMIN))
+):
+    term = db.query(academic_models.Term).filter(
+        academic_models.Term.id == term_id,
+        academic_models.Term.school_id == str(tenant.school_id)
+    ).first()
+    if not term:
+        raise HTTPException(status_code=404, detail="Term not found")
+    for field, value in update.model_dump(exclude_unset=True).items():
+        setattr(term, field, value)
+    db.commit()
+    db.refresh(term)
+    return term
+
 # Grading Policy
 @router.post("/grading-policies", response_model=academic_schemas.GradingPolicyResponse)
 def create_grading_policy(

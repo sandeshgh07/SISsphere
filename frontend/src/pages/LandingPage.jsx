@@ -432,18 +432,18 @@ const LandingPage = () => {
           <div className="pricing-card reveal">
             <div className="price-title">BASIC</div>
             <ul className="price-list"><li>Core SIS</li><li>Parent Dashboard</li><li>Smart Admissions</li><li>Board 'God View'</li></ul>
-            <button className="btn-price">Choose BASIC</button>
+            <button className="btn-price" onClick={() => scrollTo('contact')}>Choose BASIC</button>
           </div>
           <div className="pricing-card popular reveal">
             <div style={{ position: 'absolute', top: '-15px', left: '50%', transform: 'translateX(-50%)', background: 'var(--wine)', padding: '5px 15px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold' }}>POPULAR</div>
             <div className="price-title">PLUS</div>
             <ul className="price-list"><li>Everything in BASIC</li><li>AI Assistant</li><li>Teacher's Hub</li><li>Multilingual Support</li></ul>
-            <button className="btn-price">Choose PLUS</button>
+            <button className="btn-price" onClick={() => scrollTo('contact')}>Choose PLUS</button>
           </div>
           <div className="pricing-card reveal">
             <div className="price-title">PRO</div>
             <ul className="price-list"><li>Everything in PLUS</li><li>Risk Early Warning</li><li>QR Safety Gate</li><li>Audit Justification</li><li>Advanced Analytics</li></ul>
-            <button className="btn-price">Choose PRO</button>
+            <button className="btn-price" onClick={() => scrollTo('contact')}>Choose PRO</button>
           </div>
         </div>
       </section>

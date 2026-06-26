@@ -157,8 +157,12 @@ const BoardExecutiveDashboard = () => {
                                     <p className="text-xs text-gray-500">Req by: {item.requested_by} • {item.date}</p>
                                 </div>
                                 <div className="flex gap-2">
-                                    <Button size="sm" variant="outline">Review</Button>
-                                    <Button size="sm" className="bg-[#003333] hover:bg-[#004444]">Approve</Button>
+                                    <Button size="sm" variant="outline" onClick={() => navigate('/dashboard/audit-logs')}>Review</Button>
+                                    <Button size="sm" className="bg-[#003333] hover:bg-[#004444]" onClick={() => {
+                                        if (confirm(`Approve: ${item.action}?`)) {
+                                            setData(prev => ({ ...prev, governance_queue: prev.governance_queue.filter(g => g.id !== item.id) }));
+                                        }
+                                    }}>Approve</Button>
                                 </div>
                             </div>
                         ))}

@@ -357,7 +357,14 @@ export default function AcademicSetupHub() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     {!t.is_locked && (
-                                                        <Button variant="ghost" size="sm" className="text-slate-500 hover:text-red-600">
+                                                        <Button variant="ghost" size="sm" className="text-slate-500 hover:text-red-600" onClick={async () => {
+                                                            if (!confirm("Lock this term? Marks will be finalized.")) return;
+                                                            try {
+                                                                await axios.patch(`${API_BASE}/api/academics/terms/${t.id}`, { is_locked: true }, { headers });
+                                                                setTerms(prev => prev.map(x => x.id === t.id ? { ...x, is_locked: true } : x));
+                                                                toast({ title: "Success", description: "Term locked" });
+                                                            } catch { toast({ title: "Error", description: "Failed to lock term", variant: "destructive" }); }
+                                                        }}>
                                                             <Lock className="w-4 h-4" />
                                                         </Button>
                                                     )}

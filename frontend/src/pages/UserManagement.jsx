@@ -774,7 +774,20 @@ export default function UserManagement() {
                                                             {u.is_active ? <UserX className="mr-2 h-4 w-4" /> : <UserCheck className="mr-2 h-4 w-4" />}
                                                             {u.is_active ? "Disable Account" : "Enable Account"}
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem disabled={processing === u.id} className="text-slate-700 focus:bg-slate-100">
+                                                        <DropdownMenuItem
+                                                            disabled={processing === u.id}
+                                                            onClick={async () => {
+                                                                const pw = prompt(`New password for ${u.full_name || u.email}:`);
+                                                                if (!pw || pw.length < 8) { if (pw !== null) toast.error("Min 8 characters"); return; }
+                                                                setProcessing(u.id);
+                                                                try {
+                                                                    await axios.post(`${API_BASE}/api/users/${u.id}/reset-password`, { new_password: pw }, { headers });
+                                                                    toast.success("Password reset — user must change on next login");
+                                                                } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+                                                                finally { setProcessing(null); }
+                                                            }}
+                                                            className="text-slate-700 focus:bg-slate-100"
+                                                        >
                                                             <KeyRound className="mr-2 h-4 w-4" /> Reset Password
                                                         </DropdownMenuItem>
 
