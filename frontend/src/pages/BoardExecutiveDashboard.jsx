@@ -4,10 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import { Loader2, TrendingUp, TrendingDown, AlertCircle, CheckCircle, ArrowRight, UserCheck, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 
 const BoardExecutiveDashboard = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -184,7 +186,7 @@ const BoardExecutiveDashboard = () => {
                             </div>
                         </div>
                     </div>
-                    <Button variant="link" className="text-[#003333]">View Full Audit Log <ArrowRight size={16} className="ml-1" /></Button>
+                    <Button variant="link" className="text-[#003333]" onClick={() => navigate('/dashboard/audit-logs')}>View Full Audit Log <ArrowRight size={16} className="ml-1" /></Button>
                 </CardContent>
             </Card>
         </div>

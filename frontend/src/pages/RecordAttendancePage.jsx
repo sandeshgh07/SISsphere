@@ -243,7 +243,7 @@ const RecordAttendancePage = () => {
                     </Card>
 
                     <div className="flex justify-end gap-3 sticky bottom-4 z-40">
-                        <Button variant="outline" className="bg-white shadow">Cancel</Button>
+                        <Button variant="outline" className="bg-white shadow" onClick={() => { setSelectedGrade(""); setSelectedSection(""); setStudents([]); setAttendanceData({}); }}>Cancel</Button>
                         <Button onClick={handleSubmit} disabled={loading} className="gap-2 shadow-lg">
                             {loading ? <Loader2 className="animate-spin" /> : <Save size={16} />}
                             Save Attendance

@@ -30,7 +30,14 @@ dev.db
 # Logs
 *.log
 
+# Dev/test scripts (not part of the app)
+debug_*.py
+verify_*.py
+test_*.py
+seed_test_data.py
+
 # Static uploads
 static/logos/
+static/receipts/
 static/admissions/*
 !static/admissions/.gitkeep

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import api from '../lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MessageCircle, X, Send, Sparkles, Lock } from 'lucide-react';
+import { MessageCircle, X, Send, Sparkles, Lock, Bot } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -73,7 +73,7 @@ const AIChatWidget = () => {
       {/* Chat Window */}
       {isOpen && (
         <div className="fixed bottom-4 right-4 z-50 w-80 md:w-96 shadow-2xl rounded-2xl overflow-hidden border border-gray-100 bg-white flex flex-col animation-fade-in-up">
-          <div className="p-4 bg-sissphere-primary text-white rounded-t-lg flex justify-between items-center cursor-pointer" onClick={toggleOpen}>
+          <div className="p-4 bg-sissphere-primary text-white rounded-t-lg flex justify-between items-center cursor-pointer" onClick={() => setIsOpen(false)}>
             <div className="flex items-center space-x-2">
               <Bot size={20} />
               <span className="font-semibold">SISsphere AI Assistant</span>

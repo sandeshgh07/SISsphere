@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { Loader2, Bell, AlertTriangle, User, GraduationCap, Calendar, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 
 const ParentDashboard = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [students, setStudents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [analyticsData, setAnalyticsData] = useState([]);
@@ -71,7 +72,7 @@ const ParentDashboard = () => {
                     <p className="text-gray-500">Overview of your children's performance and activities.</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" className="gap-2">
+                    <Button variant="outline" className="gap-2" onClick={() => navigate('/dashboard/notices')}>
                         <Bell size={16} /> Notifications
                     </Button>
                 </div>
